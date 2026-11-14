@@ -1,6 +1,6 @@
 # Omnissiah Breakwall
 
-Переносимый лаунчер для Windows 10/11 x64 с профилями zapret для Warhammer 40,000: Darktide, Discord и YouTube и автоматическим выбором клиента Cloudflare WARP. Пошаговый запуск описан в [Инструкция.txt](./Инструкция.txt).
+Переносимый лаунчер для Windows 10/11 x64 с профилями zapret для Warhammer 40,000: Darktide, Discord и YouTube и автоматическим выбором клиента Cloudflare WARP. Пошаговый запуск описан в Инструкция.txt.
 
 ## Стратегии
 
