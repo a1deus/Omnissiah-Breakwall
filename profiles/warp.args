@@ -1,0 +1,10 @@
+--new
+--filter-tcp=443 --filter-l7=tls --hostlist=../profiles/warp.txt {tls}
+--new
+--filter-tcp=443 --filter-l7=tls --ipset=../profiles/warp-masque.txt --ipset=../profiles/warp-api.txt {tls}
+--new
+--filter-udp=443,500,1701,4500,4443,8443,8095 --filter-l7=quic --ipset=../profiles/warp-masque.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --dpi-desync-cutoff=n8
+--new
+--filter-udp=443 --filter-l7=quic --hostlist=../profiles/warp.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --dpi-desync-cutoff=n8
+--new
+--filter-udp=500,1701,2408,4500 --filter-l7=wireguard --ipset=../profiles/warp-wireguard.txt --dpi-desync=fake --dpi-desync-cutoff=n2

@@ -1,0 +1,13 @@
+--wf-tcp=80,443,2053,2083,2087,2096,8443
+--wf-udp=443,19294-19344,35500-35650,50000-50100
+--filter-udp=35500-35650 --dpi-desync=fake --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=stun.bin {game-udp}
+--new
+--filter-udp=443 --filter-l7=quic --hostlist=../profiles/discord.txt --hostlist=../profiles/darktide.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+--new
+--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=6 --dpi-desync-cutoff=n6
+--new
+--filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.media {tls}
+--new
+--filter-tcp=443 --filter-l7=tls --hostlist=../profiles/discord.txt --hostlist=../profiles/darktide.txt {tls}
+--new
+--filter-tcp=80 --filter-l7=http --hostlist=../profiles/discord.txt --hostlist=../profiles/darktide.txt --dpi-desync=multisplit --dpi-desync-split-pos=method+2

@@ -1,0 +1,11 @@
+cloudflareclient.com
+api.devices.cloudflare.com
+cloudflareportal.com
+cloudflareok.com
+cloudflarecp.com
+cloudflareaccess.com
+cloudflare-gateway.com
+cloudflare-dns.com
+^one.one.one.one
+cloudflarewarp.com
+warp.plus
