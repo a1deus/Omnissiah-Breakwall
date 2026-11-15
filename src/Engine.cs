@@ -8,7 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-internal enum Strategy { Standard, Alternate }
+internal enum Strategy { Standard, Alternate, FlowAlt2, FlowAlt3, FlowAlt7, FlowAlt10, FlowAlt11, FlowExp, FlowSimpleAlt2, FlowSimple, Combined }
 internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit }
 
 internal sealed class Engine : IDisposable
@@ -23,6 +23,9 @@ internal sealed class Engine : IDisposable
     private const string SimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin";
     private const string DiscordSimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin";
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
+    private const string FlowAlt2Tls = "--dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
+    private const string HostOnlyTls = "--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com";
+    private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string DirectoryPath = Path.Combine(Root, "engine");
     private static readonly string RuntimeRoot = Path.Combine(
@@ -144,11 +147,17 @@ internal sealed class Engine : IDisposable
         var profiles = Path.Combine(Root, "profiles");
         var alternate = strategy == Strategy.Alternate;
         var arguments = ReadProfile(Path.Combine(profiles, "base.args"));
-        if (discord != ServiceStrategy.Standard)
+        string gameUdp, gameTls;
+        GameRules(strategy, out gameUdp, out gameTls);
+        if (gameTls != null || discord != ServiceStrategy.Standard)
         {
-            var discordRules = ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord);
+            var extra = new List<string>();
+            if (gameTls != null)
+                extra.Add("--filter-tcp=443 --filter-l7=tls --hostlist=../profiles/darktide.txt " + gameTls);
+            if (discord != ServiceStrategy.Standard)
+                extra.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord));
             var firstRule = arguments.IndexOf(" --filter-udp=", StringComparison.Ordinal);
-            arguments = arguments.Insert(firstRule, " " + discordRules + " --new");
+            arguments = arguments.Insert(firstRule, " " + string.Join(" --new ", extra) + " --new");
         }
         if (warp)
         {
@@ -156,9 +165,65 @@ internal sealed class Engine : IDisposable
             arguments += " " + ReadProfile(Path.Combine(profiles, "warp.args"));
         }
         arguments += " --new " + ServiceRules(Path.Combine(profiles, "youtube.args"), youtube);
-        var gameUdp = alternate ? "--dpi-desync-repeats=2 --dpi-desync-cutoff=n4" : "--dpi-desync-cutoff=n2";
         return arguments.Replace("{tls}", alternate ? Alternate : Standard)
             .Replace("{game-udp}", gameUdp);
+    }
+
+    private static void GameRules(Strategy strategy, out string udp, out string tls)
+    {
+        const string stun = "--dpi-desync-fake-unknown-udp=stun.bin";
+        const string shortBurst = GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
+        const string mediumBurst = GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n3";
+        const string extendedBurst = GamePayload + " --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
+        tls = null;
+        switch (strategy)
+        {
+            case Strategy.Standard:
+                udp = stun + " --dpi-desync-cutoff=n2";
+                break;
+            case Strategy.Alternate:
+                udp = stun + " --dpi-desync-repeats=2 --dpi-desync-cutoff=n4";
+                break;
+            case Strategy.FlowAlt2:
+                udp = shortBurst;
+                tls = FlowAlt2Tls;
+                break;
+            case Strategy.FlowAlt3:
+                udp = extendedBurst;
+                tls = HostSplit;
+                break;
+            case Strategy.FlowAlt7:
+                udp = shortBurst;
+                tls = SniSplit;
+                break;
+            case Strategy.FlowAlt10:
+                udp = shortBurst;
+                tls = TimestampFake;
+                break;
+            case Strategy.FlowAlt11:
+                udp = extendedBurst;
+                tls = TimestampOverlap;
+                break;
+            case Strategy.FlowExp:
+                udp = "--dpi-desync-fake-unknown-udp=quic_initial_4pda_to.bin " +
+                    GamePayload + " --dpi-desync-repeats=5 --dpi-desync-cutoff=n4";
+                tls = HostOnlyTls;
+                break;
+            case Strategy.FlowSimpleAlt2:
+                udp = mediumBurst;
+                tls = SimpleFake;
+                break;
+            case Strategy.FlowSimple:
+                udp = mediumBurst;
+                tls = HostOnlyTls;
+                break;
+            case Strategy.Combined:
+                udp = stun + " " + GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n4";
+                tls = Alternate;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException("strategy");
+        }
     }
 
     private static string ServiceRules(string path, ServiceStrategy strategy)

@@ -168,31 +168,40 @@ internal sealed class MainWindow : Form
             Text = "Стратегии", TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font("Segoe UI Semibold", 10)
         };
-        strategiesHeading.SetBounds(28, 7, 316, 21);
+        strategiesHeading.SetBounds(12, 7, 348, 21);
         settings.Controls.Add(strategiesHeading);
 
-        darktideStrategy.SetBounds(28, 36, 316, 29);
-        darktideStrategy.Add(Strategy.Standard, "Darktide UDP · основной");
-        darktideStrategy.Add(Strategy.Alternate, "Darktide UDP · усиленный + TLS");
+        darktideStrategy.SetBounds(12, 36, 348, 29);
+        darktideStrategy.Add(Strategy.Standard, "DT01 - Darktide UDP · основной");
+        darktideStrategy.Add(Strategy.Alternate, "DT02 - Darktide UDP · усиленный + TLS");
+        darktideStrategy.Add(Strategy.FlowAlt2, "DT03 - Darktide UDP · разбиение TLS");
+        darktideStrategy.Add(Strategy.FlowAlt3, "DT04 - Darktide UDP · подмена имени хоста");
+        darktideStrategy.Add(Strategy.FlowAlt7, "DT05 - Darktide UDP · разбиение по SNI");
+        darktideStrategy.Add(Strategy.FlowAlt10, "DT06 - Darktide UDP · TLS с метками времени");
+        darktideStrategy.Add(Strategy.FlowAlt11, "DT07 - Darktide UDP · TLS с перекрытием");
+        darktideStrategy.Add(Strategy.FlowExp, "DT08 - Darktide UDP · пробные QUIC и UDP");
+        darktideStrategy.Add(Strategy.FlowSimpleAlt2, "DT09 - Darktide UDP · простой TLS");
+        darktideStrategy.Add(Strategy.FlowSimple, "DT10 - Darktide UDP · замена имени в TLS");
+        darktideStrategy.Add(Strategy.Combined, "DT11 - Darktide UDP · STUN + игровой UDP");
         settings.Controls.Add(darktideStrategy);
 
-        discordStrategy.SetBounds(28, 72, 316, 29);
-        discordStrategy.Add(ServiceStrategy.Standard, "Discord · основной");
-        discordStrategy.Add(ServiceStrategy.BadSequence, "Discord · TLS со смещением");
-        discordStrategy.Add(ServiceStrategy.TimestampFake, "Discord · TLS с метками времени");
-        discordStrategy.Add(ServiceStrategy.HostSplit, "Discord · подмена имени хоста");
-        discordStrategy.Add(ServiceStrategy.TimestampOverlap, "Discord · TLS с перекрытием");
-        discordStrategy.Add(ServiceStrategy.SimpleFake, "Discord · простой TLS");
-        discordStrategy.Add(ServiceStrategy.SniSplit, "Discord · разбиение по SNI");
+        discordStrategy.SetBounds(12, 72, 348, 29);
+        discordStrategy.Add(ServiceStrategy.Standard, "DS01 - Discord · основной");
+        discordStrategy.Add(ServiceStrategy.BadSequence, "DS02 - Discord · TLS со смещением");
+        discordStrategy.Add(ServiceStrategy.TimestampFake, "DS03 - Discord · TLS с метками времени");
+        discordStrategy.Add(ServiceStrategy.HostSplit, "DS04 - Discord · подмена имени хоста");
+        discordStrategy.Add(ServiceStrategy.TimestampOverlap, "DS05 - Discord · TLS с перекрытием");
+        discordStrategy.Add(ServiceStrategy.SimpleFake, "DS06 - Discord · простой TLS");
+        discordStrategy.Add(ServiceStrategy.SniSplit, "DS07 - Discord · разбиение по SNI");
         settings.Controls.Add(discordStrategy);
 
-        youtubeStrategy.SetBounds(28, 108, 316, 29);
-        youtubeStrategy.Add(ServiceStrategy.Standard, "YouTube · основной");
-        youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YouTube · TLS с метками времени");
-        youtubeStrategy.Add(ServiceStrategy.HostSplit, "YouTube · подмена имени хоста");
-        youtubeStrategy.Add(ServiceStrategy.TimestampOverlap, "YouTube · TLS с перекрытием");
-        youtubeStrategy.Add(ServiceStrategy.SimpleFake, "YouTube · простой TLS");
-        youtubeStrategy.Add(ServiceStrategy.SniSplit, "YouTube · разбиение по SNI");
+        youtubeStrategy.SetBounds(12, 108, 348, 29);
+        youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
+        youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YT02 - YouTube · TLS с метками времени");
+        youtubeStrategy.Add(ServiceStrategy.HostSplit, "YT03 - YouTube · подмена имени хоста");
+        youtubeStrategy.Add(ServiceStrategy.TimestampOverlap, "YT04 - YouTube · TLS с перекрытием");
+        youtubeStrategy.Add(ServiceStrategy.SimpleFake, "YT05 - YouTube · простой TLS");
+        youtubeStrategy.Add(ServiceStrategy.SniSplit, "YT06 - YouTube · разбиение по SNI");
         settings.Controls.Add(youtubeStrategy);
 
         useWarp.Text = "Подключить WARP";
