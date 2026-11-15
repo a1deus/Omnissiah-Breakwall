@@ -63,6 +63,8 @@ internal sealed class MainWindow : Form
     private readonly System.Windows.Forms.Timer health = new System.Windows.Forms.Timer();
     private readonly Panel mainPage = new Panel { Dock = DockStyle.Fill };
     private readonly Panel settingsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
+    private readonly Panel privacyPage = new Panel { Dock = DockStyle.Fill, Visible = false };
+    private readonly Button navigation = new Button();
     private readonly CheckBox autoStart = new AccentCheckBox();
     private readonly CheckBox trayMode = new AccentCheckBox();
     private readonly CheckBox startFilter = new AccentCheckBox();
@@ -98,6 +100,7 @@ internal sealed class MainWindow : Form
         Font = new Font("Segoe UI", 10);
         Controls.Add(mainPage);
         Controls.Add(settingsPage);
+        Controls.Add(privacyPage);
 
         logo.SetBounds(178, 23, 92, 92);
         logo.SizeMode = PictureBoxSizeMode.Zoom;
@@ -186,7 +189,9 @@ internal sealed class MainWindow : Form
         motto.SetBounds(24, 592, 400, 24);
         mainPage.Controls.Add(motto);
 
+        ConfigureNavigation();
         BuildSettingsPage();
+        BuildPrivacyPage();
         ConfigureTray();
 
         health.Interval = 1200;
@@ -240,32 +245,40 @@ internal sealed class MainWindow : Form
         }
     }
 
-    private void BuildSettingsPage()
+    private void ConfigureNavigation()
     {
-        var navigation = new Button {
-            FlatStyle = FlatStyle.Flat, ForeColor = Primary, BackColor = Surface,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right, Cursor = Cursors.Hand,
-            Font = new Font("Segoe MDL2 Assets", 13)
-        };
+        navigation.FlatStyle = FlatStyle.Flat;
+        navigation.ForeColor = Primary;
+        navigation.BackColor = Surface;
+        navigation.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        navigation.Cursor = Cursors.Hand;
+        navigation.Font = new Font("Segoe MDL2 Assets", 13);
         navigation.FlatAppearance.BorderColor = Border;
         navigation.FlatAppearance.MouseOverBackColor = Border;
         navigation.SetBounds(390, 20, 38, 38);
-        navigation.Text = "\uE713";
-        navigation.AccessibleName = "Настройки";
-        help.SetToolTip(navigation, "Настройки");
         navigation.Click += (sender, args) =>
         {
-            var showSettings = !settingsPage.Visible;
-            if (showSettings) ReadStartupSetting();
-            settingsPage.Visible = showSettings;
-            mainPage.Visible = !showSettings;
-            navigation.Text = showSettings ? "\uE72B" : "\uE713";
-            navigation.AccessibleName = showSettings ? "Назад" : "Настройки";
-            help.SetToolTip(navigation, navigation.AccessibleName);
+            if (mainPage.Visible) ReadStartupSetting();
+            ShowPage(settingsPage.Visible ? mainPage : settingsPage);
         };
         Controls.Add(navigation);
         navigation.BringToFront();
+        ShowPage(mainPage);
+    }
 
+    private void ShowPage(Panel page)
+    {
+        mainPage.Visible = page == mainPage;
+        settingsPage.Visible = page == settingsPage;
+        privacyPage.Visible = page == privacyPage;
+        navigation.Text = page == mainPage ? "\uE713" : "\uE72B";
+        navigation.AccessibleName = page == mainPage ? "Настройки" :
+            page == privacyPage ? "Назад в настройки" : "Назад";
+        help.SetToolTip(navigation, navigation.AccessibleName);
+    }
+
+    private void BuildSettingsPage()
+    {
         var heading = new Label {
             Text = "Настройки", Font = new Font("Segoe UI Semibold", 23),
             TextAlign = ContentAlignment.MiddleLeft
@@ -287,30 +300,26 @@ internal sealed class MainWindow : Form
         settingsMessage.ForeColor = Secondary;
         settingsPage.Controls.Add(settingsMessage);
 
-        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 75, ColumnCount = 1, RowCount = 2 };
+        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 102, ColumnCount = 1, RowCount = 3 };
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
-        var source = new LinkLabel {
-            Text = "Исходный код", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill,
-            LinkColor = Color.FromArgb(255, 183, 111), ActiveLinkColor = Primary
-        };
-        source.LinkClicked += (sender, args) =>
+        var privacy = PageLink("Политика конфиденциальности");
+        privacy.Dock = DockStyle.Fill;
+        privacy.LinkClicked += (sender, args) =>
         {
-            try
-            {
-                using (Process.Start(new ProcessStartInfo("https://github.com/a1deus/Omnissiah-Breakwall")
-                    { UseShellExecute = true })) { }
-            }
-            catch (Win32Exception error)
-            {
-                MessageBox.Show(this, "Не удалось открыть GitHub. " + error.Message, Program.Name);
-            }
+            ShowPage(privacyPage);
+            navigation.Focus();
         };
-        footer.Controls.Add(source, 0, 0);
+        footer.Controls.Add(privacy, 0, 0);
+        var source = PageLink("Исходный код");
+        source.Dock = DockStyle.Fill;
+        source.LinkClicked += (sender, args) => OpenLink("https://github.com/a1deus/Omnissiah-Breakwall");
+        footer.Controls.Add(source, 0, 1);
         footer.Controls.Add(new Label {
             Text = "v" + typeof(Program).Assembly.GetName().Version.ToString(3),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = Secondary, Dock = DockStyle.Fill
-        }, 0, 1);
+        }, 0, 2);
         settingsPage.Controls.Add(footer);
 
         startFilter.Enabled = false;
@@ -328,6 +337,57 @@ internal sealed class MainWindow : Form
                 settingsMessage.Text = "Не удалось изменить автозапуск. " + error.Message;
             }
         };
+    }
+
+    private void BuildPrivacyPage()
+    {
+        var heading = new Label {
+            Text = "Политика\nконфиденциальности", Font = new Font("Segoe UI Semibold", 20),
+            TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "Политика конфиденциальности"
+        };
+        heading.SetBounds(34, 20, 342, 72);
+        privacyPage.Controls.Add(heading);
+
+        var policy = new RichTextBox {
+            BackColor = Background, ForeColor = Primary, BorderStyle = BorderStyle.None,
+            ReadOnly = true, WordWrap = true, DetectUrls = false, ScrollBars = RichTextBoxScrollBars.Vertical,
+            AccessibleName = heading.AccessibleName,
+            Text = "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
+                "Лаунчер не отправляет эти настройки или диагностические отчёты разработчику.\n\n" +
+                "Если пользователь включает WARP, клиент связывается с Cloudflare для подключения, " +
+                "а трафик, направленный в туннель, проходит через сеть Cloudflare. При первой регистрации " +
+                "встроенного клиента Cloudflare получает IP соединения и данные для регистрации устройства. " +
+                "Регистрационные данные встроенного WARP хранятся в профиле Windows в зашифрованном виде. " +
+                "При использовании официального клиента данные хранятся у него."
+        };
+        policy.SetBounds(34, 102, 380, 275);
+        privacyPage.Controls.Add(policy);
+
+        var cloudflare = PageLink("Политика конфиденциальности Cloudflare WARP");
+        cloudflare.TextAlign = ContentAlignment.MiddleLeft;
+        cloudflare.SetBounds(34, 389, 380, 32);
+        cloudflare.LinkClicked += (sender, args) => OpenLink("https://developers.cloudflare.com/warp-client/privacy/");
+        privacyPage.Controls.Add(cloudflare);
+    }
+
+    private static LinkLabel PageLink(string label)
+    {
+        return new LinkLabel {
+            Text = label, TextAlign = ContentAlignment.MiddleCenter,
+            LinkColor = Color.FromArgb(255, 183, 111), ActiveLinkColor = Primary
+        };
+    }
+
+    private void OpenLink(string url)
+    {
+        try
+        {
+            using (Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })) { }
+        }
+        catch (Win32Exception error)
+        {
+            MessageBox.Show(this, "Не удалось открыть ссылку. " + error.Message, Program.Name);
+        }
     }
 
     private void AddSetting(Panel card, CheckBox option, int top, string title, string description)
