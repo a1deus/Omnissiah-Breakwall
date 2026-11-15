@@ -52,7 +52,7 @@
 
 При включении фильтра лаунчер готовит рабочую копию winws и WinDivert в `%LOCALAPPDATA%\Omnissiah Breakwall\engine`. Эта копия используется для запуска, а правила читаются из папки программы. Если Windows ещё удерживает `WinDivert64.sys`, загруженный прежней сборкой из папки программы, перезагрузите Windows перед ручной заменой этого файла или повтором обновления.
 
-Для публикации используйте стабильный тег вида `v1.0.4` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.0.4-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.0.4`. Скрипт сам запишет `1.0.4.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+Для публикации используйте стабильный тег вида `v1.0.5` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.0.5-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.0.5`. Скрипт сам запишет `1.0.5.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 ## Cloudflare WARP
 

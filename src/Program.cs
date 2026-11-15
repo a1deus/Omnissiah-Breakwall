@@ -161,14 +161,22 @@ internal sealed class MainWindow : Form
         mainPage.Controls.Add(toggle);
 
         var settings = new Panel { BackColor = Surface };
-        settings.SetBounds(38, 343, 372, 155);
+        settings.SetBounds(38, 343, 372, 179);
         mainPage.Controls.Add(settings);
-        darktideStrategy.SetBounds(28, 12, 316, 29);
+
+        var strategiesHeading = new Label {
+            Text = "Стратегии", TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI Semibold", 10)
+        };
+        strategiesHeading.SetBounds(28, 7, 316, 21);
+        settings.Controls.Add(strategiesHeading);
+
+        darktideStrategy.SetBounds(28, 36, 316, 29);
         darktideStrategy.Add(Strategy.Standard, "Darktide UDP · основной");
         darktideStrategy.Add(Strategy.Alternate, "Darktide UDP · усиленный + TLS");
         settings.Controls.Add(darktideStrategy);
 
-        discordStrategy.SetBounds(28, 48, 316, 29);
+        discordStrategy.SetBounds(28, 72, 316, 29);
         discordStrategy.Add(ServiceStrategy.Standard, "Discord · основной");
         discordStrategy.Add(ServiceStrategy.BadSequence, "Discord · TLS со смещением");
         discordStrategy.Add(ServiceStrategy.TimestampFake, "Discord · TLS с метками времени");
@@ -178,7 +186,7 @@ internal sealed class MainWindow : Form
         discordStrategy.Add(ServiceStrategy.SniSplit, "Discord · разбиение по SNI");
         settings.Controls.Add(discordStrategy);
 
-        youtubeStrategy.SetBounds(28, 84, 316, 29);
+        youtubeStrategy.SetBounds(28, 108, 316, 29);
         youtubeStrategy.Add(ServiceStrategy.Standard, "YouTube · основной");
         youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YouTube · TLS с метками времени");
         youtubeStrategy.Add(ServiceStrategy.HostSplit, "YouTube · подмена имени хоста");
@@ -189,20 +197,20 @@ internal sealed class MainWindow : Form
 
         useWarp.Text = "Подключить WARP";
         useWarp.AutoSize = true;
-        useWarp.Location = new Point(0, 120);
+        useWarp.Location = new Point(0, 144);
         settings.Controls.Add(useWarp);
         settings.Layout += (sender, args) =>
             useWarp.Left = (settings.ClientSize.Width - useWarp.Width) / 2;
         settings.PerformLayout();
 
-        message.SetBounds(24, 501, 400, 31);
+        message.SetBounds(24, 525, 400, 31);
         message.TextAlign = ContentAlignment.MiddleCenter;
         message.ForeColor = Secondary;
         message.Font = new Font("Segoe UI", 9);
         mainPage.Controls.Add(message);
 
         details.Text = "Подробности";
-        details.SetBounds(24, 536, 400, 18);
+        details.SetBounds(24, 560, 400, 18);
         details.TextAlign = ContentAlignment.MiddleCenter;
         details.Font = new Font("Segoe UI", 8);
         details.LinkColor = Secondary;
@@ -686,7 +694,7 @@ internal sealed class MainWindow : Form
     private string IdleMessage
     {
         get { return warp.Installed
-            ? "Для проверки входа в Darktide оставьте WARP выключенным."
+            ? "Используйте WARP, если ни одна стратегия не подошла для Darktide."
             : "Установите Cloudflare WARP или восстановите файлы папки warp."; }
     }
 
