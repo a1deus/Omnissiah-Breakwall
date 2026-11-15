@@ -6,11 +6,7 @@
 
 ## Code signing policy
 
-Проект подаёт заявку на бесплатную подпись кода через SignPath.io с сертификатом SignPath Foundation. Релиз v1.0.1 опубликован без подписи. [SignPath.io](https://about.signpath.io/) · [SignPath Foundation](https://signpath.org/)
-
-- Область подписи — `Omnissiah Breakwall.exe`, собранный из исходников этого репозитория в GitHub Actions. Сторонние компоненты поставляются с подписями издателей, если они есть в исходных файлах.
-- Поддержка проекта, проверка изменений и одобрение запросов на подпись — [a1deus](https://github.com/a1deus).
-- Обработка данных описана в разделе [Privacy](#privacy).
+На данный момент релизные сборки лаунчера Omnissiah Breakwall публикуются без цифровой подписи. Готовые сборки и история версий доступны на [странице релизов](https://github.com/a1deus/Omnissiah-Breakwall/releases).
 
 ## Privacy
 
@@ -115,6 +111,6 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 ## Лицензия
 
-Собственный код лаунчера распространяется по лицензии MIT. [Текст лицензии](https://github.com/a1deus/Omnissiah-Breakwall/blob/main/LICENSE)
+Собственный код лаунчера распространяется по лицензии MIT. [Текст лицензии](https://github.com/a1deus/Omnissiah-Breakwall/blob/main/LICENSE.txt)
 
 Сторонние компоненты распространяются по собственным лицензиям. Уведомления включены в каталоги `licenses` и `warp`.
