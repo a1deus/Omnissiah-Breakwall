@@ -21,8 +21,29 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        bool first;
+        int parent;
+        if (args.Length == 3 && args[0] == ReleaseUpdate.ApplyArgument && int.TryParse(args[2], out parent))
+        {
+            ReleaseUpdate.Install(args[1], parent);
+            return;
+        }
+        EventWaitHandle ready;
+        var afterUpdate = ReleaseUpdate.TryOpenReadySignal(args, out ready);
         var fromWindows = Array.IndexOf(args, WindowsStartup.Argument) >= 0;
+        using (ready)
+        {
+            if (!afterUpdate && ReleaseUpdate.IsInstalling())
+            {
+                if (!fromWindows) MessageBox.Show("Выполняется обновление. Подождите, пока программа откроется.", Name);
+                return;
+            }
+            Run(fromWindows, ready);
+        }
+    }
+
+    private static void Run(bool fromWindows, EventWaitHandle ready)
+    {
+        bool first;
         // Share the mutex with copies released under the former name.
         using (var instance = new Mutex(true, @"Local\DarktideDiscordPortable", out first))
         {
@@ -36,7 +57,12 @@ internal static class Program
             Application.SetCompatibleTextRenderingDefault(false);
             var preferencesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 Name, "strategies.txt");
-            using (var window = new MainWindow(preferencesPath, fromWindows)) Application.Run(window);
+            using (var window = new MainWindow(preferencesPath, fromWindows))
+            {
+                if (ready != null)
+                    window.Shown += (sender, args) => window.BeginInvoke(new Action(() => ready.Set()));
+                Application.Run(window);
+            }
         }
     }
 }
@@ -69,6 +95,8 @@ internal sealed class MainWindow : Form
     private readonly CheckBox trayMode = new AccentCheckBox();
     private readonly CheckBox startFilter = new AccentCheckBox();
     private readonly Label settingsMessage = new Label();
+    private readonly Label updateMessage = new Label();
+    private readonly Button updateButton = new Button();
     private readonly NotifyIcon tray = new NotifyIcon();
     private readonly ContextMenuStrip trayMenu = new ContextMenuStrip();
     private readonly ToolStripMenuItem traySwitch = new ToolStripMenuItem();
@@ -81,6 +109,9 @@ internal sealed class MainWindow : Form
     private bool allowClose;
     private bool exitRequested;
     private bool showingWindow;
+    private bool checkingUpdate;
+    private bool installingUpdate;
+    private ReleaseUpdate availableUpdate;
     private string diagnostics;
 
     public MainWindow(string preferencesPath, bool fromWindows = false)
@@ -197,7 +228,7 @@ internal sealed class MainWindow : Form
         health.Interval = 1200;
         health.Tick += async (sender, args) =>
         {
-            if (busy || !active) return;
+            if (busy || installingUpdate || !active) return;
             if (engine.Running)
             {
                 if (warp.BuiltInNeedsStop)
@@ -299,6 +330,7 @@ internal sealed class MainWindow : Form
         settingsMessage.SetBounds(34, 293, 380, 90);
         settingsMessage.ForeColor = Secondary;
         settingsPage.Controls.Add(settingsMessage);
+        BuildUpdateControls();
 
         var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 102, ColumnCount = 1, RowCount = 3 };
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
@@ -339,6 +371,91 @@ internal sealed class MainWindow : Form
         };
     }
 
+    private void BuildUpdateControls()
+    {
+        updateButton.Text = "Проверить обновления";
+        updateButton.FlatStyle = FlatStyle.Flat;
+        updateButton.FlatAppearance.BorderColor = Border;
+        updateButton.FlatAppearance.MouseOverBackColor = Border;
+        updateButton.BackColor = Field;
+        updateButton.SetBounds(34, 383, 222, 34);
+        updateButton.Click += async (sender, args) => await CheckOrInstallUpdate();
+        settingsPage.Controls.Add(updateButton);
+
+        var releases = PageLink("Релизы на GitHub");
+        releases.TextAlign = ContentAlignment.MiddleRight;
+        releases.SetBounds(257, 383, 157, 34);
+        releases.LinkClicked += (sender, args) => OpenLink(ReleaseUpdate.ReleasesUrl);
+        settingsPage.Controls.Add(releases);
+
+        updateMessage.ForeColor = Secondary;
+        updateMessage.SetBounds(34, 428, 380, 88);
+        settingsPage.Controls.Add(updateMessage);
+    }
+
+    private async Task CheckOrInstallUpdate()
+    {
+        if (checkingUpdate || busy || installingUpdate) return;
+        if (availableUpdate == null)
+        {
+            checkingUpdate = true;
+            updateMessage.Text = "Проверяем GitHub Releases…";
+            RefreshControls();
+            try
+            {
+                var release = await Task.Run(() => ReleaseUpdate.Check());
+                if (release.Version <= ReleaseUpdate.CurrentVersion)
+                    updateMessage.Text = "У вас актуальная версия.";
+                else if (release.Download == null)
+                    updateMessage.Text = "Доступна v" + release.Version.ToString(3) +
+                        ". Архив с контрольной суммой можно проверить на странице релизов.";
+                else
+                {
+                    availableUpdate = release;
+                    updateMessage.Text = "Доступна версия v" + release.Version.ToString(3) + ".";
+                }
+            }
+            catch (Exception error) { updateMessage.Text = "Проверка недоступна. " + error.Message; }
+            finally
+            {
+                checkingUpdate = false;
+                RefreshControls();
+            }
+            return;
+        }
+
+        if (MessageBox.Show(this, "Установить v" + availableUpdate.Version.ToString(3) +
+            "? Приложение остановит фильтр и запустится заново после обновления.",
+            Program.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.OK)
+            return;
+
+        installingUpdate = true;
+        RefreshControls();
+        string package = null;
+        try
+        {
+            updateMessage.Text = "Скачиваем и проверяем архив…";
+            var release = availableUpdate;
+            package = await Task.Run(() => release.DownloadPackage());
+            updateMessage.Text = "Подготавливаем замену файлов…";
+            if ((active || warp.OwnsConnection) && !await StopSession())
+                throw new InvalidOperationException("Не удалось остановить WARP.");
+            await Task.Run(() => ReleaseUpdate.StartInstaller(package));
+            allowClose = exitRequested = true;
+            Close();
+        }
+        catch (Exception error)
+        {
+            ReleaseUpdate.CancelPackage(package);
+            updateMessage.Text = "Обновление не началось. " + error.Message;
+        }
+        finally
+        {
+            installingUpdate = false;
+            if (!IsDisposed) RefreshControls();
+        }
+    }
+
     private void BuildPrivacyPage()
     {
         var heading = new Label {
@@ -354,20 +471,29 @@ internal sealed class MainWindow : Form
             AccessibleName = heading.AccessibleName,
             Text = "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
                 "Лаунчер не отправляет эти настройки или диагностические отчёты разработчику.\n\n" +
+                "При нажатии «Проверить обновления» лаунчер запрашивает сведения о последнем релизе у GitHub. " +
+                "Если пользователь подтверждает установку, он скачивает архив из GitHub Releases. " +
+                "GitHub получает IP соединения и обычные данные HTTP-запроса.\n\n" +
                 "Если пользователь включает WARP, клиент связывается с Cloudflare для подключения, " +
                 "а трафик, направленный в туннель, проходит через сеть Cloudflare. При первой регистрации " +
                 "встроенного клиента Cloudflare получает IP соединения и данные для регистрации устройства. " +
                 "Регистрационные данные встроенного WARP хранятся в профиле Windows в зашифрованном виде. " +
                 "При использовании официального клиента данные хранятся у него."
         };
-        policy.SetBounds(34, 102, 380, 275);
+        policy.SetBounds(34, 102, 380, 340);
         privacyPage.Controls.Add(policy);
 
         var cloudflare = PageLink("Политика конфиденциальности Cloudflare WARP");
         cloudflare.TextAlign = ContentAlignment.MiddleLeft;
-        cloudflare.SetBounds(34, 389, 380, 32);
+        cloudflare.SetBounds(34, 454, 380, 30);
         cloudflare.LinkClicked += (sender, args) => OpenLink("https://developers.cloudflare.com/warp-client/privacy/");
         privacyPage.Controls.Add(cloudflare);
+
+        var github = PageLink("Политика конфиденциальности GitHub");
+        github.TextAlign = ContentAlignment.MiddleLeft;
+        github.SetBounds(34, 489, 380, 30);
+        github.LinkClicked += (sender, args) => OpenLink("https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement");
+        privacyPage.Controls.Add(github);
     }
 
     private static LinkLabel PageLink(string label)
@@ -670,7 +796,7 @@ internal sealed class MainWindow : Form
 
     private async Task Switch()
     {
-        if (busy) return;
+        if (busy || installingUpdate) return;
         if (active || warp.OwnsConnection)
         {
             await StopSession();
@@ -768,12 +894,15 @@ internal sealed class MainWindow : Form
         toggle.Active = active;
         toggle.Text = busy ? "Подождите" :
             active ? "Выключить" : warp.OwnsConnection ? "Отключить WARP" : "Включить";
-        toggle.Enabled = !busy;
+        toggle.Enabled = !busy && !installingUpdate;
         toggle.Invalidate();
         tray.Text = Program.Name + " — " + status.Text;
         traySwitch.Text = busy ? "Подождите" :
             active ? "Выключить фильтр" : warp.OwnsConnection ? "Отключить WARP" : "Включить фильтр";
-        traySwitch.Enabled = trayExit.Enabled = !busy;
+        traySwitch.Enabled = trayExit.Enabled = !busy && !installingUpdate;
+        updateButton.Enabled = !busy && !checkingUpdate && !installingUpdate;
+        updateButton.Text = availableUpdate == null ? "Проверить обновления" :
+            "Установить v" + availableUpdate.Version.ToString(3);
         var canConfigure = !busy && !active && !warp.OwnsConnection;
         darktideStrategy.Enabled = canConfigure;
         discordStrategy.Enabled = canConfigure;
@@ -786,6 +915,11 @@ internal sealed class MainWindow : Form
     {
         base.OnFormClosing(args);
         if (args.Cancel || args.CloseReason == CloseReason.WindowsShutDown) return;
+        if (installingUpdate && !allowClose)
+        {
+            args.Cancel = true;
+            return;
+        }
         if (trayMode.Checked && !exitRequested && args.CloseReason == CloseReason.UserClosing)
         {
             args.Cancel = true;
