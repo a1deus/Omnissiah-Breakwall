@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('\A[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\z')]
-    [string]$Version = '1.0.1.0'
+    [string]$Version = '1.0.2.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,7 +9,7 @@ $output = Join-Path (Split-Path $PSScriptRoot -Parent) 'Omnissiah Breakwall.exe'
 if (Test-Path -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'portable')) {
     $output = Join-Path (Split-Path $PSScriptRoot -Parent) 'portable\Omnissiah Breakwall.exe'
 }
-$sources = 'Program.cs','Engine.cs','Warp.cs' | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$sources = 'Program.cs','Engine.cs','Warp.cs','WindowsStartup.cs' | ForEach-Object { Join-Path $PSScriptRoot $_ }
 $versionSource = Join-Path ([IO.Path]::GetTempPath()) ("breakwall-{0}.cs" -f [guid]::NewGuid())
 try {
     @"

@@ -1,4 +1,6 @@
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -17,22 +19,24 @@ internal static class Program
     public const string Name = "Omnissiah Breakwall";
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         bool first;
+        var fromWindows = Array.IndexOf(args, WindowsStartup.Argument) >= 0;
         // Share the mutex with copies released under the former name.
         using (var instance = new Mutex(true, @"Local\DarktideDiscordPortable", out first))
         {
             if (!first)
             {
-                MessageBox.Show("Приложение уже открыто.", Name);
+                if (!fromWindows)
+                    MessageBox.Show("Приложение уже открыто. Если окно скрыто, откройте его через значок рядом с часами.", Name);
                 return;
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var preferencesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 Name, "strategies.txt");
-            using (var window = new MainWindow(preferencesPath)) Application.Run(window);
+            using (var window = new MainWindow(preferencesPath, fromWindows)) Application.Run(window);
         }
     }
 }
@@ -49,7 +53,7 @@ internal sealed class MainWindow : Form
     private readonly Warp warp = new Warp();
     private readonly PowerButton toggle = new PowerButton();
     private readonly PictureBox logo = new PictureBox();
-    private readonly CheckBox useWarp = new WarpCheckBox();
+    private readonly CheckBox useWarp = new AccentCheckBox();
     private readonly StrategyPicker<Strategy> darktideStrategy = new StrategyPicker<Strategy>("Darktide");
     private readonly StrategyPicker<ServiceStrategy> discordStrategy = new StrategyPicker<ServiceStrategy>("Discord");
     private readonly StrategyPicker<ServiceStrategy> youtubeStrategy = new StrategyPicker<ServiceStrategy>("YouTube");
@@ -57,15 +61,30 @@ internal sealed class MainWindow : Form
     private readonly Label message = new Label();
     private readonly LinkLabel details = new LinkLabel();
     private readonly System.Windows.Forms.Timer health = new System.Windows.Forms.Timer();
+    private readonly Panel mainPage = new Panel { Dock = DockStyle.Fill };
+    private readonly Panel settingsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
+    private readonly CheckBox autoStart = new AccentCheckBox();
+    private readonly CheckBox trayMode = new AccentCheckBox();
+    private readonly CheckBox startFilter = new AccentCheckBox();
+    private readonly Label settingsMessage = new Label();
+    private readonly NotifyIcon tray = new NotifyIcon();
+    private readonly ContextMenuStrip trayMenu = new ContextMenuStrip();
+    private readonly ToolStripMenuItem traySwitch = new ToolStripMenuItem();
+    private readonly ToolStripMenuItem trayExit = new ToolStripMenuItem("Выход");
+    private readonly ToolTip help = new ToolTip();
     private readonly string preferencesPath;
+    private readonly bool fromWindows;
     private bool active;
     private bool busy;
     private bool allowClose;
+    private bool exitRequested;
+    private bool showingWindow;
     private string diagnostics;
 
-    public MainWindow(string preferencesPath)
+    public MainWindow(string preferencesPath, bool fromWindows = false)
     {
         this.preferencesPath = preferencesPath;
+        this.fromWindows = fromWindows;
         Text = Program.Name;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ClientSize = new Size(448, 635);
@@ -77,25 +96,27 @@ internal sealed class MainWindow : Form
         BackColor = Background;
         ForeColor = Primary;
         Font = new Font("Segoe UI", 10);
+        Controls.Add(mainPage);
+        Controls.Add(settingsPage);
 
         logo.SetBounds(178, 23, 92, 92);
         logo.SizeMode = PictureBoxSizeMode.Zoom;
         using (var stream = typeof(Program).Assembly.GetManifestResourceStream("omnissiah.png"))
         using (var artwork = Image.FromStream(stream))
             logo.Image = new Bitmap(artwork);
-        Controls.Add(logo);
+        mainPage.Controls.Add(logo);
 
         var title = new Label {
             Text = Program.Name, TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font("Segoe UI Semibold", 23)
         };
         title.SetBounds(24, 121, 400, 45);
-        Controls.Add(title);
+        mainPage.Controls.Add(title);
 
         status.SetBounds(24, 306, 400, 25);
         status.TextAlign = ContentAlignment.MiddleCenter;
         status.Font = new Font("Segoe UI Semibold", 9);
-        Controls.Add(status);
+        mainPage.Controls.Add(status);
 
         toggle.SetBounds(161, 176, 126, 126);
         toggle.FlatStyle = FlatStyle.Flat;
@@ -103,11 +124,11 @@ internal sealed class MainWindow : Form
         toggle.Cursor = Cursors.Hand;
         toggle.Font = new Font("Segoe UI Semibold", 10);
         toggle.Click += async (sender, args) => await Switch();
-        Controls.Add(toggle);
+        mainPage.Controls.Add(toggle);
 
         var settings = new Panel { BackColor = Surface };
         settings.SetBounds(38, 343, 372, 155);
-        Controls.Add(settings);
+        mainPage.Controls.Add(settings);
         darktideStrategy.SetBounds(28, 12, 316, 29);
         darktideStrategy.Add(Strategy.Standard, "Darktide UDP · основной");
         darktideStrategy.Add(Strategy.Alternate, "Darktide UDP · усиленный + TLS");
@@ -144,7 +165,7 @@ internal sealed class MainWindow : Form
         message.TextAlign = ContentAlignment.MiddleCenter;
         message.ForeColor = Secondary;
         message.Font = new Font("Segoe UI", 9);
-        Controls.Add(message);
+        mainPage.Controls.Add(message);
 
         details.Text = "Подробности";
         details.SetBounds(24, 536, 400, 18);
@@ -155,7 +176,7 @@ internal sealed class MainWindow : Form
         details.LinkClicked += (sender, args) => MessageBox.Show(this,
             diagnostics + Environment.NewLine + Environment.NewLine + engine.Details,
             "Подробности", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        Controls.Add(details);
+        mainPage.Controls.Add(details);
         details.BringToFront();
 
         var motto = new Label {
@@ -163,7 +184,10 @@ internal sealed class MainWindow : Form
             ForeColor = Secondary, Font = new Font("Segoe UI Semibold", 10)
         };
         motto.SetBounds(24, 592, 400, 24);
-        Controls.Add(motto);
+        mainPage.Controls.Add(motto);
+
+        BuildSettingsPage();
+        ConfigureTray();
 
         health.Interval = 1200;
         health.Tick += async (sender, args) =>
@@ -202,6 +226,211 @@ internal sealed class MainWindow : Form
         discordStrategy.SelectionChanged += SavePreferences;
         youtubeStrategy.SelectionChanged += SavePreferences;
         useWarp.CheckedChanged += SavePreferences;
+        trayMode.CheckedChanged += (sender, args) =>
+        {
+            tray.Visible = trayMode.Checked;
+            SavePreferences(sender, args);
+        };
+        startFilter.CheckedChanged += SavePreferences;
+        tray.Visible = trayMode.Checked;
+        if (fromWindows && trayMode.Checked)
+        {
+            ShowInTaskbar = false;
+            Opacity = 0;
+        }
+    }
+
+    private void BuildSettingsPage()
+    {
+        var navigation = new Button {
+            FlatStyle = FlatStyle.Flat, ForeColor = Primary, BackColor = Surface,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right, Cursor = Cursors.Hand,
+            Font = new Font("Segoe MDL2 Assets", 13)
+        };
+        navigation.FlatAppearance.BorderColor = Border;
+        navigation.FlatAppearance.MouseOverBackColor = Border;
+        navigation.SetBounds(390, 20, 38, 38);
+        navigation.Text = "\uE713";
+        navigation.AccessibleName = "Настройки";
+        help.SetToolTip(navigation, "Настройки");
+        navigation.Click += (sender, args) =>
+        {
+            var showSettings = !settingsPage.Visible;
+            if (showSettings) ReadStartupSetting();
+            settingsPage.Visible = showSettings;
+            mainPage.Visible = !showSettings;
+            navigation.Text = showSettings ? "\uE72B" : "\uE713";
+            navigation.AccessibleName = showSettings ? "Назад" : "Настройки";
+            help.SetToolTip(navigation, navigation.AccessibleName);
+        };
+        Controls.Add(navigation);
+        navigation.BringToFront();
+
+        var heading = new Label {
+            Text = "Настройки", Font = new Font("Segoe UI Semibold", 23),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        heading.SetBounds(34, 27, 320, 43);
+        settingsPage.Controls.Add(heading);
+
+        var card = new Panel { BackColor = Surface };
+        const int rowHeight = 60;
+        card.SetBounds(34, 102, 380, rowHeight * 3);
+        settingsPage.Controls.Add(card);
+        AddSetting(card, autoStart, 0, "Автозапуск с Windows",
+            "Запускает приложение при входе в вашу учётную запись Windows.");
+        AddSetting(card, trayMode, rowHeight, "Фоновый режим",
+            "Скрывает окно рядом с часами при сворачивании или закрытии. Фильтр продолжает работать.");
+        AddSetting(card, startFilter, rowHeight * 2, "Включать фильтр при запуске с Windows",
+            "Включает фильтр с сохранёнными стратегиями и настройкой WARP при входе в Windows. Требует автозапуска.");
+        settingsMessage.SetBounds(34, 293, 380, 90);
+        settingsMessage.ForeColor = Secondary;
+        settingsPage.Controls.Add(settingsMessage);
+
+        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 75, ColumnCount = 1, RowCount = 2 };
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
+        var source = new LinkLabel {
+            Text = "Исходный код", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill,
+            LinkColor = Color.FromArgb(255, 183, 111), ActiveLinkColor = Primary
+        };
+        source.LinkClicked += (sender, args) =>
+        {
+            try
+            {
+                using (Process.Start(new ProcessStartInfo("https://github.com/a1deus/Omnissiah-Breakwall")
+                    { UseShellExecute = true })) { }
+            }
+            catch (Win32Exception error)
+            {
+                MessageBox.Show(this, "Не удалось открыть GitHub. " + error.Message, Program.Name);
+            }
+        };
+        footer.Controls.Add(source, 0, 0);
+        footer.Controls.Add(new Label {
+            Text = "v" + typeof(Program).Assembly.GetName().Version.ToString(3),
+            TextAlign = ContentAlignment.MiddleCenter, ForeColor = Secondary, Dock = DockStyle.Fill
+        }, 0, 1);
+        settingsPage.Controls.Add(footer);
+
+        startFilter.Enabled = false;
+        autoStart.Click += (sender, args) =>
+        {
+            try
+            {
+                WindowsStartup.SetEnabled(autoStart.Checked, Application.ExecutablePath);
+                startFilter.Enabled = autoStart.Checked;
+                settingsMessage.Text = "";
+            }
+            catch (Exception error)
+            {
+                ReadStartupSetting();
+                settingsMessage.Text = "Не удалось изменить автозапуск. " + error.Message;
+            }
+        };
+    }
+
+    private void AddSetting(Panel card, CheckBox option, int top, string title, string description)
+    {
+        option.Text = title;
+        option.SetBounds(16, top + 10, 314, 40);
+        card.Controls.Add(option);
+        if (top != 0)
+        {
+            var divider = new Label { BackColor = Border };
+            divider.SetBounds(16, top, 348, 1);
+            card.Controls.Add(divider);
+        }
+        var hint = new Button {
+            AccessibleName = "Подсказка: " + title, AccessibleDescription = description,
+            FlatStyle = FlatStyle.Flat, ForeColor = Secondary, BackColor = Field, Cursor = Cursors.Hand
+        };
+        hint.FlatAppearance.BorderColor = Border;
+        hint.SetBounds(340, option.Top + (option.Height - 24) / 2, 24, 24);
+        hint.Paint += (sender, args) =>
+        {
+            using (var glyph = new GraphicsPath())
+            using (var center = new Matrix())
+            using (var brush = new SolidBrush(hint.ForeColor))
+            {
+                glyph.AddString("?", hint.Font.FontFamily, (int)hint.Font.Style,
+                    hint.Font.SizeInPoints * args.Graphics.DpiY / 72, PointF.Empty, StringFormat.GenericDefault);
+                var ink = glyph.GetBounds();
+                center.Translate((hint.ClientSize.Width - ink.Width) / 2 - ink.X,
+                    (hint.ClientSize.Height - ink.Height) / 2 - ink.Y);
+                glyph.Transform(center);
+                args.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                args.Graphics.FillPath(brush, glyph);
+            }
+        };
+        help.SetToolTip(hint, description);
+        hint.Click += (sender, args) => help.Show(description, hint, 0, hint.Height, 5000);
+        card.Controls.Add(hint);
+    }
+
+    private void ReadStartupSetting()
+    {
+        try
+        {
+            autoStart.Checked = WindowsStartup.IsEnabled(Application.ExecutablePath);
+            autoStart.Enabled = true;
+            settingsMessage.Text = "";
+        }
+        catch (Exception error)
+        {
+            autoStart.Checked = false;
+            autoStart.Enabled = false;
+            settingsMessage.Text = "Не удалось проверить автозапуск. " + error.Message;
+        }
+        startFilter.Enabled = autoStart.Checked;
+    }
+
+    private void ConfigureTray()
+    {
+        tray.Icon = Icon;
+        tray.ContextMenuStrip = trayMenu;
+        trayMenu.Items.Add("Открыть", null, (sender, args) => ShowWindow());
+        trayMenu.Items.Add(traySwitch);
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add(trayExit);
+        traySwitch.Click += async (sender, args) => await Switch();
+        trayExit.Click += (sender, args) =>
+        {
+            exitRequested = true;
+            Close();
+        };
+        tray.DoubleClick += (sender, args) => ShowWindow();
+    }
+
+    private void ShowWindow()
+    {
+        showingWindow = true;
+        try
+        {
+            ShowInTaskbar = true;
+            Show();
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            Activate();
+        }
+        finally { showingWindow = false; }
+    }
+
+    protected override async void OnShown(EventArgs args)
+    {
+        base.OnShown(args);
+        if (!fromWindows) return;
+        if (trayMode.Checked)
+        {
+            Hide();
+            Opacity = 1;
+        }
+        if (startFilter.Checked) await Switch();
+    }
+
+    protected override void OnResize(EventArgs args)
+    {
+        base.OnResize(args);
+        if (!showingWindow && trayMode.Checked && Visible && WindowState == FormWindowState.Minimized) Hide();
     }
 
     private void RestorePreferences()
@@ -222,6 +451,14 @@ internal sealed class MainWindow : Form
                         bool enabled;
                         if (bool.TryParse(value, out enabled)) useWarp.Checked = enabled;
                         break;
+                    case "Tray":
+                        bool inTray;
+                        if (bool.TryParse(value, out inTray)) trayMode.Checked = inTray;
+                        break;
+                    case "StartFilter":
+                        bool atLogon;
+                        if (bool.TryParse(value, out atLogon)) startFilter.Checked = atLogon;
+                        break;
                 }
             }
         }
@@ -241,7 +478,9 @@ internal sealed class MainWindow : Form
                 "Darktide=" + darktideStrategy.Selected,
                 "Discord=" + discordStrategy.Selected,
                 "YouTube=" + youtubeStrategy.Selected,
-                "WARP=" + useWarp.Checked
+                "WARP=" + useWarp.Checked,
+                "Tray=" + trayMode.Checked,
+                "StartFilter=" + startFilter.Checked
             });
             if (File.Exists(preferencesPath)) File.Replace(temporary, preferencesPath, null);
             else File.Move(temporary, preferencesPath);
@@ -253,6 +492,7 @@ internal sealed class MainWindow : Form
     private void ShowPreferencesError(string text, Exception error)
     {
         message.Text = text;
+        settingsMessage.Text = text + " " + error.Message;
         diagnostics = error.Message;
         RefreshControls();
     }
@@ -399,12 +639,7 @@ internal sealed class MainWindow : Form
                 }
                 else if (warp.OtherVpnActive())
                     message.Text = "WARP пропущен: обнаружен другой активный VPN.";
-                else if (!warp.Registered && MessageBox.Show(this,
-                    "Для первого подключения " + Program.Name + " зарегистрирует устройство в Cloudflare WARP.\n\n" +
-                    "Условия Cloudflare: https://www.cloudflare.com/application/terms/\n\n" +
-                    "Вы принимаете условия и хотите зарегистрировать устройство?",
-                    "Регистрация Cloudflare WARP", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
-                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                else if (!warp.Registered && !ConfirmWarpRegistration())
                     message.Text = "Фильтр работает. Регистрация WARP отменена.";
                 else
                 {
@@ -423,6 +658,17 @@ internal sealed class MainWindow : Form
             busy = false;
             RefreshControls();
         }
+    }
+
+    private bool ConfirmWarpRegistration()
+    {
+        if (!Visible || WindowState == FormWindowState.Minimized) ShowWindow();
+        return MessageBox.Show(this,
+            "Для первого подключения " + Program.Name + " зарегистрирует устройство в Cloudflare WARP.\n\n" +
+            "Условия Cloudflare: https://www.cloudflare.com/application/terms/\n\n" +
+            "Вы принимаете условия и хотите зарегистрировать устройство?",
+            "Регистрация Cloudflare WARP", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button2) == DialogResult.Yes;
     }
 
     private async Task<bool> StopSession()
@@ -464,6 +710,10 @@ internal sealed class MainWindow : Form
             active ? "Выключить" : warp.OwnsConnection ? "Отключить WARP" : "Включить";
         toggle.Enabled = !busy;
         toggle.Invalidate();
+        tray.Text = Program.Name + " — " + status.Text;
+        traySwitch.Text = busy ? "Подождите" :
+            active ? "Выключить фильтр" : warp.OwnsConnection ? "Отключить WARP" : "Включить фильтр";
+        traySwitch.Enabled = trayExit.Enabled = !busy;
         var canConfigure = !busy && !active && !warp.OwnsConnection;
         darktideStrategy.Enabled = canConfigure;
         discordStrategy.Enabled = canConfigure;
@@ -475,14 +725,29 @@ internal sealed class MainWindow : Form
     protected override async void OnFormClosing(FormClosingEventArgs args)
     {
         base.OnFormClosing(args);
+        if (args.Cancel || args.CloseReason == CloseReason.WindowsShutDown) return;
+        if (trayMode.Checked && !exitRequested && args.CloseReason == CloseReason.UserClosing)
+        {
+            args.Cancel = true;
+            Hide();
+            return;
+        }
         if (allowClose || (!busy && !active && !warp.OwnsConnection)) return;
-        if (args.CloseReason == CloseReason.WindowsShutDown) return;
         args.Cancel = true;
-        if (busy) return;
+        if (busy)
+        {
+            exitRequested = false;
+            return;
+        }
         if (await StopSession())
         {
             allowClose = true;
             BeginInvoke(new Action(Close));
+        }
+        else
+        {
+            exitRequested = false;
+            ShowWindow();
         }
     }
 
@@ -491,6 +756,10 @@ internal sealed class MainWindow : Form
         if (disposing)
         {
             health.Dispose();
+            tray.Visible = false;
+            tray.Dispose();
+            trayMenu.Dispose();
+            help.Dispose();
             warp.Dispose();
             engine.Dispose();
             if (logo.Image != null) logo.Image.Dispose();
@@ -500,7 +769,7 @@ internal sealed class MainWindow : Form
     }
 }
 
-internal sealed class WarpCheckBox : CheckBox
+internal sealed class AccentCheckBox : CheckBox
 {
     protected override void OnPaint(PaintEventArgs args)
     {
@@ -525,8 +794,9 @@ internal sealed class WarpCheckBox : CheckBox
         }
         var left = box.Right + (int)Math.Round(5 * scale);
         var textBounds = new Rectangle(left, 0, ClientSize.Width - left, ClientSize.Height);
+        var wrapping = AutoSize ? TextFormatFlags.SingleLine : TextFormatFlags.WordBreak;
         TextRenderer.DrawText(graphics, Text, Font, textBounds, foreground,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            TextFormatFlags.VerticalCenter | wrapping | TextFormatFlags.NoPadding);
         if (Focused && ShowFocusCues)
             ControlPaint.DrawFocusRectangle(graphics, textBounds, foreground, BackColor);
     }
