@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 internal enum Strategy { Standard, Alternate }
@@ -23,7 +25,9 @@ internal sealed class Engine : IDisposable
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string DirectoryPath = Path.Combine(Root, "engine");
-    private static readonly string Executable = Path.Combine(DirectoryPath, "winws.exe");
+    private static readonly string RuntimeRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Omnissiah Breakwall", "engine");
+    private static readonly string[] RuntimeFiles = { "winws.exe", "cygwin1.dll", "WinDivert.dll", "WinDivert64.sys" };
     private readonly Queue<string> output = new Queue<string>();
     private Process process;
     private SafeFileHandle job;
@@ -94,10 +98,45 @@ internal sealed class Engine : IDisposable
 
     private static ProcessStartInfo Info(string arguments)
     {
-        return new ProcessStartInfo(Executable, arguments) {
+        var runtime = PrepareRuntime(DirectoryPath, RuntimeRoot);
+        return new ProcessStartInfo(Path.Combine(runtime, "winws.exe"), arguments) {
             WorkingDirectory = DirectoryPath, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true
         };
+    }
+
+    private static string PrepareRuntime(string bundle, string runtimeRoot)
+    {
+        using (var sha = SHA256.Create())
+        {
+            var hashes = RuntimeFiles.ToDictionary(file => file, file => FileHash(sha, Path.Combine(bundle, file)));
+            var manifest = Encoding.ASCII.GetBytes(string.Concat(RuntimeFiles.Select(file => hashes[file])));
+            var directory = Path.Combine(runtimeRoot, BitConverter.ToString(sha.ComputeHash(manifest)).Replace("-", ""));
+            Directory.CreateDirectory(directory);
+            foreach (var file in RuntimeFiles)
+            {
+                var target = Path.Combine(directory, file);
+                if (File.Exists(target) && FileHash(sha, target) == hashes[file]) continue;
+
+                var temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.Copy(Path.Combine(bundle, file), temporary);
+                    if (FileHash(sha, temporary) != hashes[file])
+                        throw new IOException("Файл сетевого фильтра изменился при копировании: " + file);
+                    if (File.Exists(target)) File.Replace(temporary, target, null);
+                    else File.Move(temporary, target);
+                }
+                finally { File.Delete(temporary); }
+            }
+            return directory;
+        }
+    }
+
+    private static string FileHash(SHA256 sha, string path)
+    {
+        using (var stream = File.OpenRead(path))
+            return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
     }
 
     private static string Arguments(Strategy strategy, bool warp, ServiceStrategy discord, ServiceStrategy youtube)

@@ -6,7 +6,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
-using System.ServiceProcess;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -467,8 +466,9 @@ internal sealed class ReleaseUpdate
                 RefuseLinkedTarget(target);
                 if (!File.Exists(target) || Hash(target) != Hash(source)) changes.Add(relative);
             }
-            if (changes.Contains(@"engine\WinDivert64.sys", StringComparer.OrdinalIgnoreCase) && WinDivertLoaded())
-                throw new IOException("В обновлении меняется драйвер WinDivert. Перезагрузите Windows и повторите обновление до включения фильтра.");
+            const string driver = @"engine\WinDivert64.sys";
+            if (changes.Contains(driver, StringComparer.OrdinalIgnoreCase))
+                CheckDriverFile(Path.Combine(root, driver));
             File.WriteAllLines(Path.Combine(work, "changes.txt"), new[] { root }.Concat(changes));
             foreach (var relative in changes)
             {
@@ -573,15 +573,18 @@ internal sealed class ReleaseUpdate
         [DllImport("kernel32.dll")]
         private static extern bool FindClose(IntPtr handle);
 
-        private static bool WinDivertLoaded()
+        private static void CheckDriverFile(string path)
         {
-            var drivers = ServiceController.GetDevices();
+            if (!File.Exists(path)) return;
             try
             {
-                return drivers.Any(driver => driver.ServiceName.StartsWith("WinDivert", StringComparison.OrdinalIgnoreCase) &&
-                    driver.Status != ServiceControllerStatus.Stopped);
+                using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
             }
-            finally { foreach (var driver in drivers) driver.Dispose(); }
+            catch (IOException error)
+            {
+                if ((error.HResult & 0xFFFF) != 32 && (error.HResult & 0xFFFF) != 33) throw;
+                throw new IOException("Windows удерживает WinDivert64.sys в папке программы. Перезагрузите Windows и повторите обновление до включения фильтра.", error);
+            }
         }
     }
 }

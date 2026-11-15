@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('\A[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?\z')]
-    [string]$Version = '1.0.3'
+    [string]$Version = '1.0.4'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,7 +20,7 @@ try {
 [assembly: System.Reflection.AssemblyFileVersion("$Version")]
 [assembly: System.Reflection.AssemblyInformationalVersion("$Version")]
 "@ | Set-Content -LiteralPath $versionSource -Encoding UTF8
-    & $compiler /nologo /codepage:65001 /optimize+ /target:winexe /platform:x64 /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.ServiceProcess.dll "/win32manifest:$PSScriptRoot\app.manifest" "/win32icon:$PSScriptRoot\assets\omnissiah.ico" "/resource:$PSScriptRoot\assets\omnissiah.png,omnissiah.png" "/out:$output" $sources $versionSource
+    & $compiler /nologo /codepage:65001 /optimize+ /target:winexe /platform:x64 /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll "/win32manifest:$PSScriptRoot\app.manifest" "/win32icon:$PSScriptRoot\assets\omnissiah.ico" "/resource:$PSScriptRoot\assets\omnissiah.png,omnissiah.png" "/out:$output" $sources $versionSource
     if ($LASTEXITCODE -ne 0) { throw 'Сборка завершилась с ошибкой.' }
 } finally {
     if (Test-Path -LiteralPath $versionSource) {
