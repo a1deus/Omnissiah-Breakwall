@@ -8,7 +8,11 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-internal enum Strategy { Standard, Alternate, FlowAlt2, FlowAlt3, FlowAlt7, FlowAlt10, FlowAlt11, FlowExp, FlowSimpleAlt2, FlowSimple, Combined }
+internal enum Strategy
+{
+    Standard, Alternate, FlowAlt2, FlowAlt3, FlowAlt7, FlowAlt10, FlowAlt11,
+    FlowExp, FlowSimpleAlt2, FlowSimple, Combined, FlowAlt12, CommunityAlt10
+}
 internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit }
 
 internal sealed class Engine : IDisposable
@@ -24,6 +28,8 @@ internal sealed class Engine : IDisposable
     private const string DiscordSimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin";
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
     private const string FlowAlt2Tls = "--dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
+    private const string FlowAlt12Tls = "--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_max_ru.bin --dpi-desync-fake-tls=stun.bin --dpi-desync-fake-tls=tls_clienthello_max_ru.bin";
+    private const string CommunityAlt10Tls = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_4pda_to.bin --dpi-desync-fake-tls-mod=none";
     private const string HostOnlyTls = "--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
@@ -220,6 +226,14 @@ internal sealed class Engine : IDisposable
             case Strategy.Combined:
                 udp = stun + " " + GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n4";
                 tls = Alternate;
+                break;
+            case Strategy.FlowAlt12:
+                udp = "--dpi-desync-fake-unknown-udp=quic_initial_dbankcloud_ru.bin --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
+                tls = FlowAlt12Tls;
+                break;
+            case Strategy.CommunityAlt10:
+                udp = "--dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
+                tls = CommunityAlt10Tls;
                 break;
             default:
                 throw new ArgumentOutOfRangeException("strategy");

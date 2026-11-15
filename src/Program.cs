@@ -179,10 +179,12 @@ internal sealed class MainWindow : Form
         darktideStrategy.Add(Strategy.FlowAlt7, "DT05 - Darktide UDP · разбиение по SNI");
         darktideStrategy.Add(Strategy.FlowAlt10, "DT06 - Darktide UDP · TLS с метками времени");
         darktideStrategy.Add(Strategy.FlowAlt11, "DT07 - Darktide UDP · TLS с перекрытием");
-        darktideStrategy.Add(Strategy.FlowExp, "DT08 - Darktide UDP · пробные QUIC и UDP");
+        darktideStrategy.Add(Strategy.FlowExp, "DT08 - Darktide UDP · QUIC и UDP");
         darktideStrategy.Add(Strategy.FlowSimpleAlt2, "DT09 - Darktide UDP · простой TLS");
         darktideStrategy.Add(Strategy.FlowSimple, "DT10 - Darktide UDP · замена имени в TLS");
         darktideStrategy.Add(Strategy.Combined, "DT11 - Darktide UDP · STUN + игровой UDP");
+        darktideStrategy.Add(Strategy.FlowAlt12, "DT12 - Darktide UDP · QUIC dbankcloud");
+        darktideStrategy.Add(Strategy.CommunityAlt10, "DT13 - Darktide UDP · QUIC с AutoTTL");
         settings.Controls.Add(darktideStrategy);
 
         discordStrategy.SetBounds(12, 72, 348, 29);
