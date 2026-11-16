@@ -11,9 +11,9 @@ using Microsoft.Win32.SafeHandles;
 internal enum Strategy
 {
     Standard, Alternate, FlowAlt2, FlowAlt3, FlowAlt7, FlowAlt10, FlowAlt11,
-    FlowExp, FlowSimpleAlt2, FlowSimple, Combined, FlowAlt12, CommunityAlt10
+    FlowExp, FlowSimpleAlt2, FlowSimple, Combined, FlowAlt12, CommunityAlt10, None
 }
-internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit }
+internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None }
 
 internal sealed class Engine : IDisposable
 {
@@ -32,6 +32,12 @@ internal sealed class Engine : IDisposable
     private const string CommunityAlt10Tls = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_4pda_to.bin --dpi-desync-fake-tls-mod=none";
     private const string HostOnlyTls = "--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
+    private const string DarktideUdpPorts = "35500-35650";
+    private const string SpaceMarineTcpPorts = "11700-11720";
+    private const string SpaceMarineUdpPorts = "48800-55000";
+    private const string DiscordVoicePorts = "19294-19344,50000-50100";
+    private const string DiscordTlsPorts = "2053,2083,2087,2096,8443";
+    private const string WarpUdpPorts = "500,1701,2408,4500,4443,8443,8095";
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string DirectoryPath = Path.Combine(Root, "engine");
     private static readonly string RuntimeRoot = Path.Combine(
@@ -48,8 +54,13 @@ internal sealed class Engine : IDisposable
         get { lock (output) return string.Join(Environment.NewLine, output.ToArray()); }
     }
 
-    public void Start(Strategy strategy, bool warp, ServiceStrategy discord, ServiceStrategy youtube)
+    public void Start(Strategy darktide, bool warp, ServiceStrategy discord, ServiceStrategy youtube,
+        Strategy spaceMarine = Strategy.None)
     {
+        var arguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
+        if (arguments.Length == 0)
+            throw new InvalidOperationException("Выберите хотя бы одну стратегию или подключите WARP.");
+
         foreach (var name in new[] { "winws", "winws2" })
         {
             var others = Process.GetProcessesByName(name);
@@ -59,7 +70,7 @@ internal sealed class Engine : IDisposable
         }
 
         lock (output) output.Clear();
-        var child = new Process { StartInfo = Info(Arguments(strategy, warp, discord, youtube)) };
+        var child = new Process { StartInfo = Info(arguments) };
         child.OutputDataReceived += Receive;
         child.ErrorDataReceived += Receive;
         try
@@ -86,9 +97,12 @@ internal sealed class Engine : IDisposable
     }
 
     public static int Validate(Strategy strategy, bool warp,
-        ServiceStrategy discord = ServiceStrategy.Standard, ServiceStrategy youtube = ServiceStrategy.Standard)
+        ServiceStrategy discord = ServiceStrategy.Standard, ServiceStrategy youtube = ServiceStrategy.Standard,
+        Strategy spaceMarine = Strategy.None)
     {
-        using (var child = new Process { StartInfo = Info("--dry-run " + Arguments(strategy, warp, discord, youtube)) })
+        var arguments = Arguments(strategy, warp, discord, youtube, spaceMarine);
+        if (arguments.Length == 0) return 0;
+        using (var child = new Process { StartInfo = Info("--dry-run " + arguments) })
         {
             child.OutputDataReceived += (sender, args) => { if (args.Data != null) Console.WriteLine(args.Data); };
             child.ErrorDataReceived += (sender, args) => { if (args.Data != null) Console.Error.WriteLine(args.Data); };
@@ -148,31 +162,82 @@ internal sealed class Engine : IDisposable
             return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
     }
 
-    private static string Arguments(Strategy strategy, bool warp, ServiceStrategy discord, ServiceStrategy youtube)
+    private static string Arguments(Strategy darktide, bool warp, ServiceStrategy discord, ServiceStrategy youtube,
+        Strategy spaceMarine)
     {
         var profiles = Path.Combine(Root, "profiles");
-        var alternate = strategy == Strategy.Alternate;
-        var arguments = ReadProfile(Path.Combine(profiles, "base.args"));
-        string gameUdp, gameTls;
-        GameRules(strategy, out gameUdp, out gameTls);
-        if (gameTls != null || discord != ServiceStrategy.Standard)
+        var rules = new List<string>();
+        var tcp = new List<string>();
+        var udp = new List<string>();
+        var darktideEnabled = darktide != Strategy.None;
+        var spaceMarineEnabled = spaceMarine != Strategy.None;
+        var discordEnabled = discord != ServiceStrategy.None;
+        var youtubeEnabled = youtube != ServiceStrategy.None;
+        var baseTls = darktide == Strategy.Alternate ? Alternate : Standard;
+
+        if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
+        if (darktideEnabled || discordEnabled || youtubeEnabled || warp)
         {
-            var extra = new List<string>();
+            tcp.Add("443");
+            udp.Add("443");
+        }
+        if (warp) udp.Add(WarpUdpPorts);
+
+        var hosts = new List<string>();
+        const string darktideHosts = "--hostlist=../profiles/darktide.txt";
+        if (discordEnabled) hosts.Add("--hostlist=../profiles/discord.txt");
+        if (darktideEnabled)
+        {
+            hosts.Add(darktideHosts);
+            udp.Add(DarktideUdpPorts);
+            string gameUdp, gameTls;
+            GameRules(darktide, out gameUdp, out gameTls);
             if (gameTls != null)
-                extra.Add("--filter-tcp=443 --filter-l7=tls --hostlist=../profiles/darktide.txt " + gameTls);
-            if (discord != ServiceStrategy.Standard)
-                extra.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord));
-            var firstRule = arguments.IndexOf(" --filter-udp=", StringComparison.Ordinal);
-            arguments = arguments.Insert(firstRule, " " + string.Join(" --new ", extra) + " --new");
+                rules.Add("--filter-tcp=443 --filter-l7=tls " + darktideHosts + " " + gameTls);
+            rules.Add(GameUdpRule(DarktideUdpPorts, gameUdp));
         }
-        if (warp)
+
+        if (discordEnabled)
         {
-            arguments = arguments.Replace("--wf-udp=443,", "--wf-udp=443,500,1701,2408,4500,4443,8443,8095,");
-            arguments += " " + ReadProfile(Path.Combine(profiles, "warp.args"));
+            tcp.Add(DiscordTlsPorts);
+            udp.Add(spaceMarineEnabled ? "19294-19344" : DiscordVoicePorts);
+            if (discord != ServiceStrategy.Standard)
+            {
+                var exclusion = darktideEnabled ? " --hostlist-exclude=../profiles/darktide.txt" : "";
+                rules.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord)
+                    .Replace("{darktide-exclusion}", exclusion));
+            }
+            rules.Add(ReadProfile(Path.Combine(profiles, "discord-base.args")).Replace("{tls}", baseTls));
         }
-        arguments += " --new " + ServiceRules(Path.Combine(profiles, "youtube.args"), youtube);
-        return arguments.Replace("{tls}", alternate ? Alternate : Standard)
-            .Replace("{game-udp}", gameUdp);
+
+        if (spaceMarineEnabled)
+        {
+            tcp.Add(SpaceMarineTcpPorts);
+            udp.Add(SpaceMarineUdpPorts);
+            string gameUdp, gameTls;
+            GameRules(spaceMarine, out gameUdp, out gameTls);
+            // Discord's voice ports overlap this range. Its protocol-specific rule goes first.
+            rules.Add(GameUdpRule(SpaceMarineUdpPorts, gameUdp));
+            var tls = gameTls ?? (spaceMarine == Strategy.Alternate ? Alternate : Standard);
+            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + tls);
+        }
+
+        if (hosts.Count != 0)
+            rules.Add(ReadProfile(Path.Combine(profiles, "base.args"))
+                .Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", baseTls));
+        if (warp)
+            rules.Add(ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", baseTls));
+        if (youtubeEnabled)
+            rules.Add(ServiceRules(Path.Combine(profiles, "youtube.args"), youtube));
+
+        if (rules.Count == 0) return "";
+        return "--wf-tcp=" + string.Join(",", tcp) + " --wf-udp=" + string.Join(",", udp) +
+            " " + string.Join(" --new ", rules);
+    }
+
+    private static string GameUdpRule(string ports, string options)
+    {
+        return "--filter-udp=" + ports + " --dpi-desync=fake --dpi-desync-any-protocol=1 " + options;
     }
 
     private static void GameRules(Strategy strategy, out string udp, out string tls)

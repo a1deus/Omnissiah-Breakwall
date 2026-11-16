@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -81,6 +82,7 @@ internal sealed class MainWindow : Form
     private readonly PictureBox logo = new PictureBox();
     private readonly CheckBox useWarp = new AccentCheckBox();
     private readonly StrategyPicker<Strategy> darktideStrategy = new StrategyPicker<Strategy>("Darktide");
+    private readonly StrategyPicker<Strategy> spaceMarineStrategy = new StrategyPicker<Strategy>("Space Marine 2");
     private readonly StrategyPicker<ServiceStrategy> discordStrategy = new StrategyPicker<ServiceStrategy>("Discord");
     private readonly StrategyPicker<ServiceStrategy> youtubeStrategy = new StrategyPicker<ServiceStrategy>("YouTube");
     private readonly Label status = new Label();
@@ -120,7 +122,7 @@ internal sealed class MainWindow : Form
         this.fromWindows = fromWindows;
         Text = Program.Name;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-        ClientSize = new Size(448, 635);
+        ClientSize = new Size(448, 671);
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -161,7 +163,7 @@ internal sealed class MainWindow : Form
         mainPage.Controls.Add(toggle);
 
         var settings = new Panel { BackColor = Surface };
-        settings.SetBounds(38, 343, 372, 179);
+        settings.SetBounds(38, 343, 372, 215);
         mainPage.Controls.Add(settings);
 
         var strategiesHeading = new Label {
@@ -172,22 +174,16 @@ internal sealed class MainWindow : Form
         settings.Controls.Add(strategiesHeading);
 
         darktideStrategy.SetBounds(12, 36, 348, 29);
-        darktideStrategy.Add(Strategy.Standard, "DT01 - Darktide UDP · основной");
-        darktideStrategy.Add(Strategy.Alternate, "DT02 - Darktide UDP · усиленный + TLS");
-        darktideStrategy.Add(Strategy.FlowAlt2, "DT03 - Darktide UDP · разбиение TLS");
-        darktideStrategy.Add(Strategy.FlowAlt3, "DT04 - Darktide UDP · подмена имени хоста");
-        darktideStrategy.Add(Strategy.FlowAlt7, "DT05 - Darktide UDP · разбиение по SNI");
-        darktideStrategy.Add(Strategy.FlowAlt10, "DT06 - Darktide UDP · TLS с метками времени");
-        darktideStrategy.Add(Strategy.FlowAlt11, "DT07 - Darktide UDP · TLS с перекрытием");
-        darktideStrategy.Add(Strategy.FlowExp, "DT08 - Darktide UDP · QUIC и UDP");
-        darktideStrategy.Add(Strategy.FlowSimpleAlt2, "DT09 - Darktide UDP · простой TLS");
-        darktideStrategy.Add(Strategy.FlowSimple, "DT10 - Darktide UDP · замена имени в TLS");
-        darktideStrategy.Add(Strategy.Combined, "DT11 - Darktide UDP · STUN + игровой UDP");
-        darktideStrategy.Add(Strategy.FlowAlt12, "DT12 - Darktide UDP · QUIC dbankcloud");
-        darktideStrategy.Add(Strategy.CommunityAlt10, "DT13 - Darktide UDP · QUIC с AutoTTL");
+        AddGameStrategies(darktideStrategy, "DT", "Darktide UDP");
+        darktideStrategy.Restore(Strategy.Standard.ToString());
         settings.Controls.Add(darktideStrategy);
 
-        discordStrategy.SetBounds(12, 72, 348, 29);
+        spaceMarineStrategy.SetBounds(12, 72, 348, 29);
+        AddGameStrategies(spaceMarineStrategy, "SM", "Space Marine 2");
+        settings.Controls.Add(spaceMarineStrategy);
+
+        discordStrategy.SetBounds(12, 108, 348, 29);
+        discordStrategy.Add(ServiceStrategy.None, "Выбрать");
         discordStrategy.Add(ServiceStrategy.Standard, "DS01 - Discord · основной");
         discordStrategy.Add(ServiceStrategy.BadSequence, "DS02 - Discord · TLS со смещением");
         discordStrategy.Add(ServiceStrategy.TimestampFake, "DS03 - Discord · TLS с метками времени");
@@ -195,33 +191,36 @@ internal sealed class MainWindow : Form
         discordStrategy.Add(ServiceStrategy.TimestampOverlap, "DS05 - Discord · TLS с перекрытием");
         discordStrategy.Add(ServiceStrategy.SimpleFake, "DS06 - Discord · простой TLS");
         discordStrategy.Add(ServiceStrategy.SniSplit, "DS07 - Discord · разбиение по SNI");
+        discordStrategy.Restore(ServiceStrategy.Standard.ToString());
         settings.Controls.Add(discordStrategy);
 
-        youtubeStrategy.SetBounds(12, 108, 348, 29);
+        youtubeStrategy.SetBounds(12, 144, 348, 29);
+        youtubeStrategy.Add(ServiceStrategy.None, "Выбрать");
         youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
         youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YT02 - YouTube · TLS с метками времени");
         youtubeStrategy.Add(ServiceStrategy.HostSplit, "YT03 - YouTube · подмена имени хоста");
         youtubeStrategy.Add(ServiceStrategy.TimestampOverlap, "YT04 - YouTube · TLS с перекрытием");
         youtubeStrategy.Add(ServiceStrategy.SimpleFake, "YT05 - YouTube · простой TLS");
         youtubeStrategy.Add(ServiceStrategy.SniSplit, "YT06 - YouTube · разбиение по SNI");
+        youtubeStrategy.Restore(ServiceStrategy.Standard.ToString());
         settings.Controls.Add(youtubeStrategy);
 
         useWarp.Text = "Подключить WARP";
         useWarp.AutoSize = true;
-        useWarp.Location = new Point(0, 144);
+        useWarp.Location = new Point(0, 180);
         settings.Controls.Add(useWarp);
         settings.Layout += (sender, args) =>
             useWarp.Left = (settings.ClientSize.Width - useWarp.Width) / 2;
         settings.PerformLayout();
 
-        message.SetBounds(24, 525, 400, 31);
+        message.SetBounds(24, 561, 400, 31);
         message.TextAlign = ContentAlignment.MiddleCenter;
         message.ForeColor = Secondary;
         message.Font = new Font("Segoe UI", 9);
         mainPage.Controls.Add(message);
 
         details.Text = "Подробности";
-        details.SetBounds(24, 560, 400, 18);
+        details.SetBounds(24, 596, 400, 18);
         details.TextAlign = ContentAlignment.MiddleCenter;
         details.Font = new Font("Segoe UI", 8);
         details.LinkColor = Secondary;
@@ -236,7 +235,7 @@ internal sealed class MainWindow : Form
             Text = "Слава Омниссии!", TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Secondary, Font = new Font("Segoe UI Semibold", 10)
         };
-        motto.SetBounds(24, 592, 400, 24);
+        motto.SetBounds(24, 628, 400, 24);
         mainPage.Controls.Add(motto);
 
         ConfigureNavigation();
@@ -278,6 +277,7 @@ internal sealed class MainWindow : Form
         RefreshControls();
         RestorePreferences();
         darktideStrategy.SelectionChanged += SavePreferences;
+        spaceMarineStrategy.SelectionChanged += SavePreferences;
         discordStrategy.SelectionChanged += SavePreferences;
         youtubeStrategy.SelectionChanged += SavePreferences;
         useWarp.CheckedChanged += SavePreferences;
@@ -293,6 +293,24 @@ internal sealed class MainWindow : Form
             ShowInTaskbar = false;
             Opacity = 0;
         }
+    }
+
+    private static void AddGameStrategies(StrategyPicker<Strategy> picker, string prefix, string game)
+    {
+        picker.Add(Strategy.None, "Выбрать");
+        picker.Add(Strategy.Standard, prefix + "01 - " + game + " · основной");
+        picker.Add(Strategy.Alternate, prefix + "02 - " + game + " · усиленный + TLS");
+        picker.Add(Strategy.FlowAlt2, prefix + "03 - " + game + " · разбиение TLS");
+        picker.Add(Strategy.FlowAlt3, prefix + "04 - " + game + " · подмена имени хоста");
+        picker.Add(Strategy.FlowAlt7, prefix + "05 - " + game + " · разбиение по SNI");
+        picker.Add(Strategy.FlowAlt10, prefix + "06 - " + game + " · TLS с метками времени");
+        picker.Add(Strategy.FlowAlt11, prefix + "07 - " + game + " · TLS с перекрытием");
+        picker.Add(Strategy.FlowExp, prefix + "08 - " + game + " · QUIC и UDP");
+        picker.Add(Strategy.FlowSimpleAlt2, prefix + "09 - " + game + " · простой TLS");
+        picker.Add(Strategy.FlowSimple, prefix + "10 - " + game + " · замена имени в TLS");
+        picker.Add(Strategy.Combined, prefix + "11 - " + game + " · STUN + игровой UDP");
+        picker.Add(Strategy.FlowAlt12, prefix + "12 - " + game + " · QUIC dbankcloud");
+        picker.Add(Strategy.CommunityAlt10, prefix + "13 - " + game + " · QUIC с AutoTTL");
     }
 
     private void ConfigureNavigation()
@@ -650,6 +668,7 @@ internal sealed class MainWindow : Form
                 switch (line.Substring(0, separator))
                 {
                     case "Darktide": darktideStrategy.Restore(value); break;
+                    case "SpaceMarine2": spaceMarineStrategy.Restore(value); break;
                     case "Discord": discordStrategy.Restore(value); break;
                     case "YouTube": youtubeStrategy.Restore(value); break;
                     case "WARP":
@@ -681,6 +700,7 @@ internal sealed class MainWindow : Form
             Directory.CreateDirectory(Path.GetDirectoryName(preferencesPath));
             File.WriteAllLines(temporary, new[] {
                 "Darktide=" + darktideStrategy.Selected,
+                "SpaceMarine2=" + spaceMarineStrategy.Selected,
                 "Discord=" + discordStrategy.Selected,
                 "YouTube=" + youtubeStrategy.Selected,
                 "WARP=" + useWarp.Checked,
@@ -711,13 +731,21 @@ internal sealed class MainWindow : Form
 
     private sealed class StrategyPicker<T> : Button
     {
-        private readonly ContextMenuStrip menu = new ContextMenuStrip();
+        private const int MaximumDropDownHeight = 260;
+        private readonly ToolStripDropDown menu = new ToolStripDropDown();
+        private readonly StrategyListBox options = new StrategyListBox();
+        private readonly Panel viewport = new Panel();
+        private readonly StrategyScrollBar scrollBar;
+        private readonly ToolStripControlHost host;
+        private readonly string service;
+        private int selectedIndex;
 
         public T Selected { get; private set; }
         public event EventHandler SelectionChanged;
 
         public StrategyPicker(string service)
         {
+            this.service = service;
             AccessibleName = "Стратегия " + service;
             AccessibleDescription = "Открывает список стратегий";
             FlatStyle = FlatStyle.Flat;
@@ -725,52 +753,125 @@ internal sealed class MainWindow : Form
             FlatAppearance.MouseOverBackColor = Border;
             BackColor = Field;
             ForeColor = Primary;
-            menu.BackColor = Field;
-            menu.ForeColor = Primary;
-            menu.ShowImageMargin = false;
+            options.AccessibleName = AccessibleName;
+            options.BorderStyle = BorderStyle.None;
+            options.BackColor = Field;
+            options.ForeColor = Primary;
+            options.IntegralHeight = false;
+            options.DrawMode = DrawMode.OwnerDrawFixed;
+            options.DisplayMember = "Value";
+            options.DrawItem += DrawOption;
+            scrollBar = new StrategyScrollBar(options, viewport);
+            options.MouseWheel += scrollBar.ScrollWheel;
+            options.KeyboardSelectionChanged += (sender, args) => scrollBar.Reveal(options.SelectedIndex);
+            options.MouseClick += (sender, args) =>
+            {
+                if (args.Button == MouseButtons.Left) Commit(options.IndexFromPoint(args.Location));
+            };
+            options.KeyDown += (sender, args) =>
+            {
+                if (args.KeyCode == Keys.Enter) Commit(options.SelectedIndex);
+                else if (args.KeyCode == Keys.Escape) menu.Close();
+                else if (args.KeyCode == Keys.PageUp || args.KeyCode == Keys.PageDown)
+                {
+                    var page = Math.Max(1, viewport.Height / options.ItemHeight);
+                    var step = args.KeyCode == Keys.PageUp ? -page : page;
+                    options.SelectedIndex = Math.Max(0, Math.Min(options.Items.Count - 1, options.SelectedIndex + step));
+                }
+                else return;
+                args.SuppressKeyPress = true;
+            };
+            viewport.Controls.Add(options);
+            var content = new Panel { BackColor = Field };
+            content.Controls.Add(viewport);
+            content.Controls.Add(scrollBar);
+            host = new ToolStripControlHost(content) { AutoSize = false, Margin = Padding.Empty };
+            menu.Items.Add(host);
+            menu.BackColor = Border;
             menu.Renderer = new ToolStripProfessionalRenderer(new StrategyColors());
             menu.AutoSize = false;
+            menu.Padding = new Padding(1);
         }
 
         public void Add(T value, string label)
         {
-            var item = new ToolStripMenuItem(label) { Tag = value, AutoSize = false, TextAlign = ContentAlignment.MiddleCenter };
-            item.Click += (sender, args) =>
-            {
-                Select(item);
-                if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
-            };
-            menu.Items.Add(item);
-            if (menu.Items.Count == 1) Select(item);
+            var index = options.Items.Add(new KeyValuePair<T, string>(value, label));
+            if (index == 0) Select(index);
         }
 
         public void Restore(string value)
         {
-            foreach (ToolStripMenuItem item in menu.Items)
+            for (var index = 0; index < options.Items.Count; index++)
             {
-                if (item.Tag.ToString() != value) continue;
-                Select(item);
+                if (Option(index).Key.ToString() != value) continue;
+                Select(index);
                 return;
             }
         }
 
-        private void Select(ToolStripMenuItem item)
+        private KeyValuePair<T, string> Option(int index)
         {
-            Selected = (T)item.Tag;
-            Text = item.Text;
-            AccessibleDescription = "Выбрано: " + item.Text;
-            foreach (ToolStripMenuItem option in menu.Items)
-                option.ForeColor = option == item ? Color.FromArgb(255, 183, 111) : Primary;
+            return (KeyValuePair<T, string>)options.Items[index];
+        }
+
+        private void Select(int index)
+        {
+            selectedIndex = index;
+            var item = Option(index);
+            Selected = item.Key;
+            Text = index == 0 ? service + " · " + item.Value : item.Value;
+            AccessibleDescription = Text;
+        }
+
+        private void Commit(int index)
+        {
+            if (index < 0) return;
+            var changed = index != selectedIndex;
+            Select(index);
+            menu.Close();
+            Focus();
+            if (changed && SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+        }
+
+        private void DrawOption(object sender, DrawItemEventArgs args)
+        {
+            if (args.Index < 0) return;
+            var selected = (args.State & DrawItemState.Selected) != 0;
+            using (var background = new SolidBrush(selected ? Border : Field))
+                args.Graphics.FillRectangle(background, args.Bounds);
+            var foreground = args.Index == selectedIndex ? Color.FromArgb(255, 183, 111) : Primary;
+            TextRenderer.DrawText(args.Graphics, Option(args.Index).Value, options.Font, args.Bounds, foreground,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                TextFormatFlags.NoPrefix);
+            args.DrawFocusRectangle();
         }
 
         protected override void OnClick(EventArgs args)
         {
             base.OnClick(args);
+            options.Font = Font;
             var rowHeight = Math.Max(Height, Font.Height + 8);
-            menu.Size = new Size(Width, rowHeight * menu.Items.Count + 4);
-            foreach (ToolStripItem item in menu.Items)
-                item.Size = new Size(Width - 2, rowHeight);
-            menu.Show(this, new Point(0, Height));
+            var listHeight = rowHeight * options.Items.Count;
+            var height = Math.Min(MaximumDropDownHeight, listHeight + menu.Padding.Vertical);
+            var width = Width - menu.Padding.Horizontal;
+            var contentHeight = height - menu.Padding.Vertical;
+            var scrollWidth = listHeight > contentHeight ? SystemInformation.VerticalScrollBarWidth : 0;
+            options.ItemHeight = rowHeight;
+            host.Size = new Size(width, contentHeight);
+            viewport.SetBounds(0, 0, width - scrollWidth, contentHeight);
+            // Give the ListBox room for every row and move it inside the clipped viewport by pixels.
+            options.SetBounds(0, 0, viewport.Width, listHeight);
+            scrollBar.SetBounds(viewport.Right, 0, scrollWidth, contentHeight);
+            scrollBar.Visible = scrollWidth != 0;
+            menu.Size = new Size(Width, height);
+            var workingArea = Screen.FromControl(this).WorkingArea;
+            var below = workingArea.Bottom - PointToScreen(new Point(0, Height)).Y;
+            var above = PointToScreen(Point.Empty).Y - workingArea.Top;
+            var openAbove = below < height && above > below;
+            options.SelectedIndex = selectedIndex;
+            scrollBar.Reveal(selectedIndex);
+            menu.Show(this, new Point(0, openAbove ? -height : Height));
+            options.Focus();
         }
 
         protected override void OnPaint(PaintEventArgs args)
@@ -787,6 +888,157 @@ internal sealed class MainWindow : Form
         {
             if (disposing) menu.Dispose();
             base.Dispose(disposing);
+        }
+    }
+
+    private sealed class StrategyListBox : ListBox
+    {
+        private const int KeyDownMessage = 0x0100;
+        private const int CharacterMessage = 0x0102;
+
+        public event EventHandler KeyboardSelectionChanged;
+
+        protected override void WndProc(ref Message message)
+        {
+            base.WndProc(ref message);
+            if ((message.Msg == KeyDownMessage || message.Msg == CharacterMessage) && KeyboardSelectionChanged != null)
+                KeyboardSelectionChanged(this, EventArgs.Empty);
+        }
+    }
+
+    private sealed class StrategyScrollBar : Control
+    {
+        private const int TrackInset = 3;
+        private const int MinimumThumbHeight = 18;
+        private readonly ListBox list;
+        private readonly Control viewport;
+        private int dragStartY;
+        private int dragStartOffset;
+        private bool dragging;
+        private bool hovered;
+        private int wheelRemainder;
+
+        public StrategyScrollBar(ListBox list, Control viewport)
+        {
+            this.list = list;
+            this.viewport = viewport;
+            BackColor = Surface;
+            AccessibleName = "Прокрутка списка стратегий";
+            SetStyle(ControlStyles.Selectable, false);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+        }
+
+        private int ScrollOffset { get { return -list.Top; } }
+        private int MaximumOffset { get { return Math.Max(0, list.Height - viewport.Height); } }
+
+        private Rectangle Thumb
+        {
+            get
+            {
+                var track = Rectangle.Inflate(ClientRectangle, -TrackInset, -TrackInset);
+                var height = Math.Min(track.Height, Math.Max(MinimumThumbHeight,
+                    track.Height * viewport.Height / Math.Max(1, list.Height)));
+                var travel = track.Height - height;
+                var top = track.Top + (int)Math.Round(travel * (double)ScrollOffset / Math.Max(1, MaximumOffset));
+                return new Rectangle(track.Left, top, track.Width, height);
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs args)
+        {
+            base.OnPaint(args);
+            if (MaximumOffset == 0) return;
+            var level = dragging || hovered ? 125 : 91;
+            using (var brush = new SolidBrush(Color.FromArgb(level, level, level)))
+                args.Graphics.FillRectangle(brush, Thumb);
+        }
+
+        protected override void OnMouseEnter(EventArgs args)
+        {
+            base.OnMouseEnter(args);
+            hovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs args)
+        {
+            base.OnMouseLeave(args);
+            hovered = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs args)
+        {
+            base.OnMouseDown(args);
+            if (args.Button != MouseButtons.Left || MaximumOffset == 0) return;
+            var thumb = Thumb;
+            if (!thumb.Contains(args.Location))
+            {
+                SetOffset(ScrollOffset + (args.Y < thumb.Top ? -viewport.Height : viewport.Height));
+                return;
+            }
+            dragStartY = args.Y;
+            dragStartOffset = ScrollOffset;
+            dragging = true;
+            Capture = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs args)
+        {
+            base.OnMouseMove(args);
+            if (!dragging) return;
+            var travel = Math.Max(1, ClientSize.Height - 2 * TrackInset - Thumb.Height);
+            var offset = (int)Math.Round((args.Y - dragStartY) * (double)MaximumOffset / travel);
+            SetOffset(dragStartOffset + offset);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs args)
+        {
+            base.OnMouseUp(args);
+            if (args.Button == MouseButtons.Left && dragging) Capture = false;
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs args)
+        {
+            base.OnMouseCaptureChanged(args);
+            if (!Capture) dragging = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs args)
+        {
+            base.OnMouseWheel(args);
+            ScrollWheel(this, args);
+        }
+
+        public void ScrollWheel(object sender, MouseEventArgs args)
+        {
+            var handled = args as HandledMouseEventArgs;
+            if (handled != null) handled.Handled = true;
+            var lines = SystemInformation.MouseWheelScrollLines;
+            var pixelsPerStep = lines < 0 ? viewport.Height : lines * list.ItemHeight;
+            var delta = args.Delta * pixelsPerStep + wheelRemainder;
+            wheelRemainder = delta % SystemInformation.MouseWheelScrollDelta;
+            SetOffset(ScrollOffset - delta / SystemInformation.MouseWheelScrollDelta);
+        }
+
+        public void Reveal(int index)
+        {
+            if (index < 0) return;
+            var rowTop = index * list.ItemHeight;
+            var firstOffsetShowingRow = rowTop + list.ItemHeight - viewport.Height;
+            SetOffset(Math.Min(rowTop, Math.Max(ScrollOffset, firstOffsetShowingRow)));
+        }
+
+        private void SetOffset(int offset)
+        {
+            var clamped = Math.Max(0, Math.Min(offset, MaximumOffset));
+            if (clamped == ScrollOffset) return;
+            list.Top = -clamped;
+            list.Update();
+            Invalidate();
+            Update();
         }
     }
 
@@ -822,19 +1074,27 @@ internal sealed class MainWindow : Form
             return;
         }
 
+        var profile = darktideStrategy.Selected;
+        var spaceMarine = spaceMarineStrategy.Selected;
+        var discord = discordStrategy.Selected;
+        var youtube = youtubeStrategy.Selected;
+        var withWarp = useWarp.Checked && warp.Installed;
+        if (!withWarp && profile == Strategy.None && spaceMarine == Strategy.None &&
+            discord == ServiceStrategy.None && youtube == ServiceStrategy.None)
+        {
+            message.Text = "Выберите хотя бы одну стратегию или подключите WARP.";
+            return;
+        }
+
         busy = true;
         diagnostics = null;
         message.Text = "Запуск сетевого фильтра…";
         RefreshControls();
-        var profile = darktideStrategy.Selected;
-        var discord = discordStrategy.Selected;
-        var youtube = youtubeStrategy.Selected;
-        var withWarp = useWarp.Checked && warp.Installed;
         try
         {
-            await Task.Run(() => engine.Start(profile, withWarp, discord, youtube));
+            await Task.Run(() => engine.Start(profile, withWarp, discord, youtube, spaceMarine));
             active = true;
-            message.Text = "Фильтр запущен для Darktide, Discord и YouTube.";
+            message.Text = "Фильтр запущен.";
             if (withWarp)
             {
                 if (warp.UsesOfficialClient)
@@ -924,6 +1184,7 @@ internal sealed class MainWindow : Form
             "Установить v" + availableUpdate.Version.ToString(3);
         var canConfigure = !busy && !active && !warp.OwnsConnection;
         darktideStrategy.Enabled = canConfigure;
+        spaceMarineStrategy.Enabled = canConfigure;
         discordStrategy.Enabled = canConfigure;
         youtubeStrategy.Enabled = canConfigure;
         useWarp.Enabled = canConfigure && warp.Installed;

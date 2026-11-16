@@ -383,7 +383,7 @@ internal sealed class ReleaseUpdate
         }
         foreach (var required in new[] { Launcher, @"engine\winws.exe", @"engine\WinDivert64.sys",
             @"engine\WinDivert.dll", @"engine\cygwin1.dll", @"profiles\base.args", @"profiles\youtube.args",
-            @"profiles\discord-alt.args", @"warp\usque.exe", @"warp\wintun.dll" })
+            @"profiles\discord-base.args", @"profiles\discord-alt.args", @"warp\usque.exe", @"warp\wintun.dll" })
         {
             if (!File.Exists(Path.Combine(payload, required)))
                 throw new InvalidDataException("Из ZIP отсутствует обязательный файл: " + required);
