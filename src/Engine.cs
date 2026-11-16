@@ -35,6 +35,8 @@ internal sealed class Engine : IDisposable
     private const string DarktideUdpPorts = "35500-35650";
     private const string SpaceMarineTcpPorts = "11700-11720";
     private const string SpaceMarineUdpPorts = "48800-55000";
+    private const string SpaceMarineHosts = "--hostlist=../profiles/space-marine-2.txt";
+    private const string SpaceMarineNetworks = "--ipset=../profiles/space-marine-2-ip.txt";
     private const string DiscordVoicePorts = "19294-19344,50000-50100";
     private const string DiscordTlsPorts = "2053,2083,2087,2096,8443";
     private const string WarpUdpPorts = "500,1701,2408,4500,4443,8443,8095";
@@ -176,7 +178,7 @@ internal sealed class Engine : IDisposable
         var baseTls = darktide == Strategy.Alternate ? Alternate : Standard;
 
         if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
-        if (darktideEnabled || discordEnabled || youtubeEnabled || warp)
+        if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warp)
         {
             tcp.Add("443");
             udp.Add("443");
@@ -210,18 +212,6 @@ internal sealed class Engine : IDisposable
             rules.Add(ReadProfile(Path.Combine(profiles, "discord-base.args")).Replace("{tls}", baseTls));
         }
 
-        if (spaceMarineEnabled)
-        {
-            tcp.Add(SpaceMarineTcpPorts);
-            udp.Add(SpaceMarineUdpPorts);
-            string gameUdp, gameTls;
-            GameRules(spaceMarine, out gameUdp, out gameTls);
-            // Discord's voice ports overlap this range. Its protocol-specific rule goes first.
-            rules.Add(GameUdpRule(SpaceMarineUdpPorts, gameUdp));
-            var tls = gameTls ?? (spaceMarine == Strategy.Alternate ? Alternate : Standard);
-            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + tls);
-        }
-
         if (hosts.Count != 0)
             rules.Add(ReadProfile(Path.Combine(profiles, "base.args"))
                 .Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", baseTls));
@@ -229,6 +219,20 @@ internal sealed class Engine : IDisposable
             rules.Add(ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", baseTls));
         if (youtubeEnabled)
             rules.Add(ServiceRules(Path.Combine(profiles, "youtube.args"), youtube));
+        if (spaceMarineEnabled)
+        {
+            tcp.Add(SpaceMarineTcpPorts);
+            udp.Add(SpaceMarineUdpPorts);
+            string gameUdp, gameTls;
+            GameRules(spaceMarine, out gameUdp, out gameTls);
+            var tls = gameTls ?? (spaceMarine == Strategy.Alternate ? Alternate : Standard);
+            // Existing service rules take priority, including Discord voice on overlapping UDP ports.
+            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineNetworks + " " + gameUdp));
+            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineNetworks + " " + tls);
+            rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + tls);
+            rules.Add("--filter-udp=443 --filter-l7=quic " + SpaceMarineHosts +
+                " --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin");
+        }
 
         if (rules.Count == 0) return "";
         return "--wf-tcp=" + string.Join(",", tcp) + " --wf-udp=" + string.Join(",", udp) +

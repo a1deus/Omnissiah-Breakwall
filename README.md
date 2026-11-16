@@ -62,7 +62,9 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 ### Варианты Space Marine 2
 
-Стратегии SM01–SM13 используют те же варианты обработки, что и соответствующие DT01–DT13. Игровое UDP-правило Space Marine 2 применяется к портам 48800–55000, а правило TLS использует TCP 11700–11720. При включённом Discord его правило голосового UDP проверяется перед общим правилом Space Marine 2.
+Стратегии SM01–SM13 используют те же варианты обработки, что и соответствующие DT01–DT13. Игровой UDP на портах 48800–55000 и TLS на TCP 11700–11720 обрабатываются для адресов из `profiles/space-marine-2-ip.txt`. В список входят общие подсети провайдеров, заданные для профиля SM. При включённом Discord его правило голосового UDP проверяется раньше.
+
+Файл `profiles/space-marine-2.txt` задаёт домены для TLS и QUIC на порту 443. В него входят домены Focus и Saber, Easy Anti-Cheat, Epic Online Services и PROS. Адреса API и оверлея Epic покрываются доменами `epicgames.dev` и `epicgames.com`. [Сетевые требования Epic](https://dev.epicgames.com/docs/epic-online-services/firewall-considerations) · [Подключение к Easy Anti-Cheat](https://www.epicgames.com/help/c-32735058/c-37477814/easy-anti-cheat-eac-oyun-sorunlari-a24092251) · [PROS для Space Marine 2](https://prismray.io/rewards?title=Y2F61)
 
 ## Запуск с Windows и фоновый режим
 
@@ -80,7 +82,7 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 При включении фильтра лаунчер готовит рабочую копию winws и WinDivert в `%LOCALAPPDATA%\Omnissiah Breakwall\engine`. Эта копия используется для запуска, а правила читаются из папки программы. Если Windows ещё удерживает `WinDivert64.sys`, загруженный прежней сборкой из папки программы, перезагрузите Windows перед ручной заменой этого файла или повтором обновления.
 
-Для публикации используйте стабильный тег вида `v1.2.0` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.2.0-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.2.0`. Скрипт сам запишет `1.2.0.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+Для публикации используйте стабильный тег вида `v1.2.1` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.2.1-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.2.1`. Скрипт сам запишет `1.2.1.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 ## Cloudflare WARP
 
