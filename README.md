@@ -20,7 +20,7 @@
 
 Если уже запущен другой zapret, завершите его через его собственный интерфейс перед включением этой сборки. Для проверки входа в Darktide выберите **DT01 - Darktide UDP · основной**, оставьте WARP выключенным и попробуйте войти в «Моурнингстар». Если ошибка 2004, 2014, 3001 или 3013 повторится, выключите фильтр, выберите **DT02 - Darktide UDP · усиленный + TLS** и повторите вход. Усиленный профиль посылает больше пробных пакетов в начале игровой сессии и использует альтернативную обработку TLS.
 
-Выберите стратегии Darktide, Space Marine 2, Discord и YouTube и нажмите **Включить**. Первый пункт **Выбрать** отключает правила соответствующей группы. При первом запуске Darktide, Discord и YouTube используют основные варианты, а группа Space Marine 2 выключена. Программа сохраняет стратегии и состояние галочки WARP в `%LOCALAPPDATA%\Omnissiah Breakwall\strategies.txt` и восстанавливает их при следующем запуске. Для смены стратегии выключите фильтр, измените выбор и снова включите его.
+Выберите стратегии Darktide, Space Marine 2, Discord и YouTube и нажмите **Включить**. Первый пункт с пометкой **Выключено** отключает правила соответствующей группы. При первом запуске Darktide, Discord и YouTube используют основные варианты, а группа Space Marine 2 выключена. Программа сохраняет стратегии и состояние галочки WARP в `%LOCALAPPDATA%\Omnissiah Breakwall\strategies.txt` и восстанавливает их при следующем запуске. Для смены стратегии выключите фильтр, измените выбор и снова включите его.
 
 | Вариант | Discord | YouTube |
 | --- | --- | --- |
@@ -34,10 +34,10 @@
 
 ### Варианты Darktide
 
-Новые профили используют UDP-порты 35500–35650 и отдельное правило TLS
-на TCP 443 для доменов Darktide. UDP-порты для хаба и миссий сверены
-по 40 последним игровым логам. В них найдено 175 обращений к лобби,
-все в пределах этого диапазона.
+Профили DT01–DT13 используют игровой UDP на портах 35500–35650 и 35670.
+Порт 35670 встречается в двух журналах успешного входа в миссию.
+Доменные правила Darktide на TCP 443 включают адрес входа
+`login.shr-prod-identity.fatshark.services`.
 
 | Профиль | На основе | Обработка игровых UDP-пакетов |
 | --- | --- | --- |
@@ -62,13 +62,14 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 ### Варианты Space Marine 2
 
-Стратегии SM01–SM13 используют те же варианты обработки, что и соответствующие DT01–DT13. Игровой UDP на портах 48800–55000 и TLS на TCP 11700–11720 обрабатываются для адресов из `profiles/space-marine-2-ip.txt`. В список входят общие подсети провайдеров, заданные для профиля SM. При включённом Discord его правило голосового UDP проверяется раньше.
+Стратегии SM01–SM13 используют те же варианты обработки, что и соответствующие DT01–DT13. Для игрового UDP на портах 48800–55000 и TLS на TCP 11700–11720 действует общий список `profiles/space-marine-2-ip.txt`. Его дополняют точные адреса, замеченные в игре. Файл `profiles/space-marine-2-udp-ip.txt` используется для UDP, а `profiles/space-marine-2-tcp-ip.txt` для TLS. При включённом Discord его правило голосового UDP проверяется раньше.
 
 Файл `profiles/space-marine-2.txt` задаёт домены для TLS и QUIC на порту 443. В него входят домены Focus и Saber, Easy Anti-Cheat, Epic Online Services и PROS. Адреса API и оверлея Epic покрываются доменами `epicgames.dev` и `epicgames.com`. [Сетевые требования Epic](https://dev.epicgames.com/docs/epic-online-services/firewall-considerations) · [Подключение к Easy Anti-Cheat](https://www.epicgames.com/help/c-32735058/c-37477814/easy-anti-cheat-eac-oyun-sorunlari-a24092251) · [PROS для Space Marine 2](https://prismray.io/rewards?title=Y2F61)
 
 ## Запуск с Windows и фоновый режим
 
 Шестерёнка в правом верхнем углу открывает настройки в том же окне.
+Ссылка **Инструкция** в настройках открывает краткое руководство по функциям лаунчера.
 
 - **Автозапуск с Windows** создаёт задание в Планировщике Windows для текущей учётной записи. Задание запускает лаунчер с правами администратора при входе в Windows. После переноса EXE включите автозапуск снова, чтобы обновить путь в задании.
 - **Фоновый режим** скрывает окно при сворачивании или закрытии. Значок рядом с часами открывает окно и позволяет управлять фильтром. Чтобы остановить фильтр и завершить программу, выберите **Выход** в меню значка. При сочетании фонового режима с автозапуском лаунчер открывается в трее.
@@ -82,7 +83,7 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 При включении фильтра лаунчер готовит рабочую копию winws и WinDivert в `%LOCALAPPDATA%\Omnissiah Breakwall\engine`. Эта копия используется для запуска, а правила читаются из папки программы. Если Windows ещё удерживает `WinDivert64.sys`, загруженный прежней сборкой из папки программы, перезагрузите Windows перед ручной заменой этого файла или повтором обновления.
 
-Для публикации используйте стабильный тег вида `v1.2.1` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.2.1-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.2.1`. Скрипт сам запишет `1.2.1.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+Для публикации используйте стабильный тег вида `v1.3.0` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.3.0-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.3.0`. Скрипт сам запишет `1.3.0.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 ## Cloudflare WARP
 
@@ -106,7 +107,7 @@ TLS для доменов Darktide. Коды DT, DS и YT помогают ук�
 
 - Выбранная стратегия YouTube применяет отдельные правила TLS и QUIC к сайту, видеосерверам и CDN превью из `profiles/youtube-core.txt`. Список `profiles/youtube.txt` включает также региональные домены Google и домены сервисов из списка v2fly. Все записи из `list-google.txt` Flowseal покрыты, включая `stable.dl2.discordapp.net`, который обрабатывается профилем Discord. [Список Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/2401b7a13837139b0265632464ba563dddbf80d8/lists/list-google.txt) · [Список Google и YouTube](https://github.com/v2fly/domain-list-community/blob/777d056afe68b2643c1ef15f80e7bde3dfa149b1/data/google)
 - `profiles/darktide.txt` содержит доменные зоны игровых сервисов Atoma, официальные сайты Fatshark и адрес Vivox из журналов игры. Поддомены учитываются автоматически. Профиль обрабатывает HTTP, TLS и QUIC к этим доменам.
-- `profiles/base.args` содержит общие доменные правила Darktide и Discord. Лаунчер подставляет доменные списки включённых групп. Отдельное правило начала сессии Darktide формируется для UDP `35500–35650` в `src/Engine.cs`. Если провайдер блокирует сам IP или весь UDP-маршрут, может понадобиться WARP. [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3759171917)
+- `profiles/base.args` содержит общие доменные правила Darktide и Discord. Лаунчер подставляет доменные списки включённых групп. Отдельное правило начала сессии Darktide формируется для UDP `35500–35650` и `35670` в `src/Engine.cs`. Если провайдер блокирует сам IP или весь UDP-маршрут, может понадобиться WARP. [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3759171917)
 - `profiles/discord.txt` охватывает домены Discord из Flowseal, включая клиент, CDN и вложения, а также Klipy для GIF. Из v2fly добавлены `discord.tools` и точный адрес поддержки `hammerandchisel.ssl.zendesk.com`. Голосовой UDP обрабатывается по диапазонам портов и сигнатурам Discord/STUN из Flowseal. [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/2401b7a13837139b0265632464ba563dddbf80d8/lists/list-general.txt) · [v2fly](https://github.com/v2fly/domain-list-community/blob/777d056afe68b2643c1ef15f80e7bde3dfa149b1/data/discord)
 - `profiles/warp.txt` содержит домены служб клиента, Cloudflare Access, Gateway, DNS 1.1.1.1 и сайта WARP. `profiles/warp-api.txt` содержит точные адреса API регистрации для TLS. Списки `warp-masque.txt` и `warp-wireguard.txt` задают подсети для туннеля. Эти правила загружаются с галочкой WARP. [Cloudflare](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/) · [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/main/lists/list-general.txt) · [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3695068003)
 

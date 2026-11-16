@@ -81,10 +81,10 @@ internal sealed class MainWindow : Form
     private readonly PowerButton toggle = new PowerButton();
     private readonly PictureBox logo = new PictureBox();
     private readonly CheckBox useWarp = new AccentCheckBox();
-    private readonly StrategyPicker<Strategy> darktideStrategy = new StrategyPicker<Strategy>("Darktide");
-    private readonly StrategyPicker<Strategy> spaceMarineStrategy = new StrategyPicker<Strategy>("Space Marine 2");
-    private readonly StrategyPicker<ServiceStrategy> discordStrategy = new StrategyPicker<ServiceStrategy>("Discord");
-    private readonly StrategyPicker<ServiceStrategy> youtubeStrategy = new StrategyPicker<ServiceStrategy>("YouTube");
+    private readonly StrategyPicker<Strategy> darktideStrategy = new StrategyPicker<Strategy>("Darktide", Strategy.None);
+    private readonly StrategyPicker<Strategy> spaceMarineStrategy = new StrategyPicker<Strategy>("Space Marine 2", Strategy.None);
+    private readonly StrategyPicker<ServiceStrategy> discordStrategy = new StrategyPicker<ServiceStrategy>("Discord", ServiceStrategy.None);
+    private readonly StrategyPicker<ServiceStrategy> youtubeStrategy = new StrategyPicker<ServiceStrategy>("YouTube", ServiceStrategy.None);
     private readonly Label status = new Label();
     private readonly Label message = new Label();
     private readonly LinkLabel details = new LinkLabel();
@@ -92,6 +92,7 @@ internal sealed class MainWindow : Form
     private readonly Panel mainPage = new Panel { Dock = DockStyle.Fill };
     private readonly Panel settingsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel privacyPage = new Panel { Dock = DockStyle.Fill, Visible = false };
+    private readonly Panel instructionsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Button navigation = new Button();
     private readonly CheckBox autoStart = new AccentCheckBox();
     private readonly CheckBox trayMode = new AccentCheckBox();
@@ -134,6 +135,7 @@ internal sealed class MainWindow : Form
         Controls.Add(mainPage);
         Controls.Add(settingsPage);
         Controls.Add(privacyPage);
+        Controls.Add(instructionsPage);
 
         logo.SetBounds(178, 23, 92, 92);
         logo.SizeMode = PictureBoxSizeMode.Zoom;
@@ -183,7 +185,6 @@ internal sealed class MainWindow : Form
         settings.Controls.Add(spaceMarineStrategy);
 
         discordStrategy.SetBounds(12, 108, 348, 29);
-        discordStrategy.Add(ServiceStrategy.None, "Выбрать");
         discordStrategy.Add(ServiceStrategy.Standard, "DS01 - Discord · основной");
         discordStrategy.Add(ServiceStrategy.BadSequence, "DS02 - Discord · TLS со смещением");
         discordStrategy.Add(ServiceStrategy.TimestampFake, "DS03 - Discord · TLS с метками времени");
@@ -195,7 +196,6 @@ internal sealed class MainWindow : Form
         settings.Controls.Add(discordStrategy);
 
         youtubeStrategy.SetBounds(12, 144, 348, 29);
-        youtubeStrategy.Add(ServiceStrategy.None, "Выбрать");
         youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
         youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YT02 - YouTube · TLS с метками времени");
         youtubeStrategy.Add(ServiceStrategy.HostSplit, "YT03 - YouTube · подмена имени хоста");
@@ -241,6 +241,7 @@ internal sealed class MainWindow : Form
         ConfigureNavigation();
         BuildSettingsPage();
         BuildPrivacyPage();
+        BuildInstructionsPage();
         ConfigureTray();
 
         health.Interval = 1200;
@@ -297,7 +298,6 @@ internal sealed class MainWindow : Form
 
     private static void AddGameStrategies(StrategyPicker<Strategy> picker, string prefix, string game)
     {
-        picker.Add(Strategy.None, "Выбрать");
         picker.Add(Strategy.Standard, prefix + "01 - " + game + " · основной");
         picker.Add(Strategy.Alternate, prefix + "02 - " + game + " · усиленный + TLS");
         picker.Add(Strategy.FlowAlt2, prefix + "03 - " + game + " · разбиение TLS");
@@ -339,9 +339,10 @@ internal sealed class MainWindow : Form
         mainPage.Visible = page == mainPage;
         settingsPage.Visible = page == settingsPage;
         privacyPage.Visible = page == privacyPage;
+        instructionsPage.Visible = page == instructionsPage;
         navigation.Text = page == mainPage ? "\uE713" : "\uE72B";
         navigation.AccessibleName = page == mainPage ? "Настройки" :
-            page == privacyPage ? "Назад в настройки" : "Назад";
+            page == privacyPage || page == instructionsPage ? "Назад в настройки" : "Назад";
         help.SetToolTip(navigation, navigation.AccessibleName);
     }
 
@@ -369,10 +370,19 @@ internal sealed class MainWindow : Form
         settingsPage.Controls.Add(settingsMessage);
         BuildUpdateControls();
 
-        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 102, ColumnCount = 1, RowCount = 3 };
+        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 129, ColumnCount = 1, RowCount = 4 };
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
+        var instructions = PageLink("Инструкция");
+        instructions.Dock = DockStyle.Fill;
+        instructions.LinkClicked += (sender, args) =>
+        {
+            ShowPage(instructionsPage);
+            navigation.Focus();
+        };
+        footer.Controls.Add(instructions, 0, 0);
         var privacy = PageLink("Политика конфиденциальности");
         privacy.Dock = DockStyle.Fill;
         privacy.LinkClicked += (sender, args) =>
@@ -380,15 +390,15 @@ internal sealed class MainWindow : Form
             ShowPage(privacyPage);
             navigation.Focus();
         };
-        footer.Controls.Add(privacy, 0, 0);
+        footer.Controls.Add(privacy, 0, 1);
         var source = PageLink("Исходный код");
         source.Dock = DockStyle.Fill;
         source.LinkClicked += (sender, args) => OpenLink("https://github.com/a1deus/Omnissiah-Breakwall");
-        footer.Controls.Add(source, 0, 1);
+        footer.Controls.Add(source, 0, 2);
         footer.Controls.Add(new Label {
             Text = "v" + typeof(Program).Assembly.GetName().Version.ToString(3),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = Secondary, Dock = DockStyle.Fill
-        }, 0, 2);
+        }, 0, 3);
         settingsPage.Controls.Add(footer);
 
         startFilter.Enabled = false;
@@ -495,18 +505,8 @@ internal sealed class MainWindow : Form
 
     private void BuildPrivacyPage()
     {
-        var heading = new Label {
-            Text = "Политика\nконфиденциальности", Font = new Font("Segoe UI Semibold", 20),
-            TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "Политика конфиденциальности"
-        };
-        heading.SetBounds(34, 20, 342, 72);
-        privacyPage.Controls.Add(heading);
-
-        var policy = new RichTextBox {
-            BackColor = Background, ForeColor = Primary, BorderStyle = BorderStyle.None,
-            ReadOnly = true, WordWrap = true, DetectUrls = false, ScrollBars = RichTextBoxScrollBars.Vertical,
-            AccessibleName = heading.AccessibleName,
-            Text = "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
+        BuildInformationPage(privacyPage, "Политика\nконфиденциальности", 340,
+                "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
                 "Лаунчер не отправляет эти настройки или диагностические отчёты разработчику.\n\n" +
                 "При нажатии «Проверить обновления» лаунчер запрашивает сведения о последнем релизе у GitHub. " +
                 "Если пользователь подтверждает установку, он скачивает архив из GitHub Releases. " +
@@ -515,10 +515,7 @@ internal sealed class MainWindow : Form
                 "а трафик, направленный в туннель, проходит через сеть Cloudflare. При первой регистрации " +
                 "встроенного клиента Cloudflare получает IP соединения и данные для регистрации устройства. " +
                 "Регистрационные данные встроенного WARP хранятся в профиле Windows в зашифрованном виде. " +
-                "При использовании официального клиента данные хранятся у него."
-        };
-        policy.SetBounds(34, 102, 380, 340);
-        privacyPage.Controls.Add(policy);
+                "При использовании официального клиента данные хранятся у него.");
 
         var cloudflare = PageLink("Политика конфиденциальности Cloudflare WARP");
         cloudflare.TextAlign = ContentAlignment.MiddleLeft;
@@ -531,6 +528,71 @@ internal sealed class MainWindow : Form
         github.SetBounds(34, 489, 380, 30);
         github.LinkClicked += (sender, args) => OpenLink("https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement");
         privacyPage.Controls.Add(github);
+    }
+
+    private void BuildInstructionsPage()
+    {
+        AddInformationHeading(instructionsPage, "Инструкция");
+        var sections = new FlowLayoutPanel {
+            FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true,
+            AccessibleName = "Разделы инструкции"
+        };
+        sections.SetBounds(34, 102, 397, 549);
+        instructionsPage.Controls.Add(sections);
+
+        AddInstructionSection(sections, "Стратегии",
+            "Выберите стратегию для нужной игры или сервиса и нажмите «Включить». " +
+            "«Выключено» отключает группу. Чтобы сменить стратегию, сначала нажмите «Выключить». " +
+            "Приложение запоминает ваш выбор.");
+        AddInstructionSection(sections, "Cloudflare WARP",
+            "Если одной стратегии недостаточно, выключите фильтр, отметьте «Подключить WARP» и включите фильтр снова. " +
+            "При первой регистрации встроенного WARP приложение попросит подтвердить условия Cloudflare.");
+        AddInstructionSection(sections, "Работа в фоне",
+            "В фоновом режиме окно скрывается в области уведомлений, а фильтр продолжает работать. " +
+            "Чтобы остановить фильтр и закрыть приложение, выберите «Выход» в меню значка. " +
+            "Автозапуск может включать фильтр с сохранёнными настройками при входе в Windows.");
+        AddInstructionSection(sections, "Обновления и ошибки",
+            "Проверить новую версию можно в настройках. Если приложение сообщит об ошибке, " +
+            "откройте «Подробности» на главном экране.");
+    }
+
+    private static void AddInstructionSection(FlowLayoutPanel sections, string title, string text)
+    {
+        const int width = 380;
+        if (sections.Controls.Count != 0)
+            sections.Controls.Add(new Panel {
+                BackColor = Border, Size = new Size(width, 1), Margin = new Padding(0, 9, 0, 9)
+            });
+        sections.Controls.Add(new Label {
+            Text = title, AutoSize = true, Font = new Font("Segoe UI", 11, FontStyle.Bold),
+            MaximumSize = new Size(width, 0), Margin = new Padding(0, 0, 0, 15)
+        });
+        sections.Controls.Add(new Label {
+            Text = text, AutoSize = true, MaximumSize = new Size(width, 0), Margin = Padding.Empty,
+            UseMnemonic = false
+        });
+    }
+
+    private static void AddInformationHeading(Panel page, string title)
+    {
+        var heading = new Label {
+            Text = title, Font = new Font("Segoe UI Semibold", 20),
+            TextAlign = ContentAlignment.MiddleLeft, AccessibleName = title.Replace('\n', ' ')
+        };
+        heading.SetBounds(34, 20, 342, 72);
+        page.Controls.Add(heading);
+    }
+
+    private static void BuildInformationPage(Panel page, string title, int height, string text)
+    {
+        AddInformationHeading(page, title);
+        var content = new RichTextBox {
+            BackColor = Background, ForeColor = Primary, BorderStyle = BorderStyle.None,
+            ReadOnly = true, WordWrap = true, DetectUrls = false, ScrollBars = RichTextBoxScrollBars.Vertical,
+            AccessibleName = title.Replace('\n', ' '), Text = text
+        };
+        content.SetBounds(34, 102, 380, height);
+        page.Controls.Add(content);
     }
 
     private static LinkLabel PageLink(string label)
@@ -725,7 +787,7 @@ internal sealed class MainWindow : Form
     private string IdleMessage
     {
         get { return warp.Installed
-            ? "Используйте WARP, если ни одна стратегия не подошла для Darktide."
+            ? "Используйте WARP, только если ни одна стратегия не подошла.\nPing может возрасти."
             : "Установите Cloudflare WARP или восстановите файлы папки warp."; }
     }
 
@@ -737,15 +799,13 @@ internal sealed class MainWindow : Form
         private readonly Panel viewport = new Panel();
         private readonly StrategyScrollBar scrollBar;
         private readonly ToolStripControlHost host;
-        private readonly string service;
         private int selectedIndex;
 
         public T Selected { get; private set; }
         public event EventHandler SelectionChanged;
 
-        public StrategyPicker(string service)
+        public StrategyPicker(string service, T disabled)
         {
-            this.service = service;
             AccessibleName = "Стратегия " + service;
             AccessibleDescription = "Открывает список стратегий";
             FlatStyle = FlatStyle.Flat;
@@ -753,6 +813,7 @@ internal sealed class MainWindow : Form
             FlatAppearance.MouseOverBackColor = Border;
             BackColor = Field;
             ForeColor = Primary;
+            TextAlign = ContentAlignment.MiddleCenter;
             options.AccessibleName = AccessibleName;
             options.BorderStyle = BorderStyle.None;
             options.BackColor = Field;
@@ -789,8 +850,10 @@ internal sealed class MainWindow : Form
             menu.Items.Add(host);
             menu.BackColor = Border;
             menu.Renderer = new ToolStripProfessionalRenderer(new StrategyColors());
+            menu.Closed += (sender, args) => scrollBar.StopWheel();
             menu.AutoSize = false;
             menu.Padding = new Padding(1);
+            Add(disabled, service + " · Выключено");
         }
 
         public void Add(T value, string label)
@@ -819,7 +882,7 @@ internal sealed class MainWindow : Form
             selectedIndex = index;
             var item = Option(index);
             Selected = item.Key;
-            Text = index == 0 ? service + " · " + item.Value : item.Value;
+            Text = item.Value;
             AccessibleDescription = Text;
         }
 
@@ -840,8 +903,9 @@ internal sealed class MainWindow : Form
             using (var background = new SolidBrush(selected ? Border : Field))
                 args.Graphics.FillRectangle(background, args.Bounds);
             var foreground = args.Index == selectedIndex ? Color.FromArgb(255, 183, 111) : Primary;
-            TextRenderer.DrawText(args.Graphics, Option(args.Index).Value, options.Font, args.Bounds, foreground,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+            var textBounds = Rectangle.Inflate(args.Bounds, -12, 0);
+            TextRenderer.DrawText(args.Graphics, Option(args.Index).Value, options.Font, textBounds, foreground,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
                 TextFormatFlags.NoPrefix);
             args.DrawFocusRectangle();
         }
@@ -910,13 +974,18 @@ internal sealed class MainWindow : Form
     {
         private const int TrackInset = 3;
         private const int MinimumThumbHeight = 18;
+        private const double WheelTimeConstantMs = 38;
         private readonly ListBox list;
         private readonly Control viewport;
+        private readonly System.Windows.Forms.Timer wheelAnimation = new System.Windows.Forms.Timer { Interval = 15 };
+        private readonly Stopwatch wheelFrame = new Stopwatch();
         private int dragStartY;
         private int dragStartOffset;
         private bool dragging;
         private bool hovered;
         private int wheelRemainder;
+        private int wheelTarget;
+        private double wheelPosition;
 
         public StrategyScrollBar(ListBox list, Control viewport)
         {
@@ -926,6 +995,7 @@ internal sealed class MainWindow : Form
             AccessibleName = "Прокрутка списка стратегий";
             SetStyle(ControlStyles.Selectable, false);
             SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+            wheelAnimation.Tick += AdvanceWheel;
         }
 
         private int ScrollOffset { get { return -list.Top; } }
@@ -971,6 +1041,7 @@ internal sealed class MainWindow : Form
         {
             base.OnMouseDown(args);
             if (args.Button != MouseButtons.Left || MaximumOffset == 0) return;
+            StopWheel();
             var thumb = Thumb;
             if (!thumb.Contains(args.Location))
             {
@@ -1016,16 +1087,46 @@ internal sealed class MainWindow : Form
         {
             var handled = args as HandledMouseEventArgs;
             if (handled != null) handled.Handled = true;
+            if (MaximumOffset == 0 || dragging) return;
             var lines = SystemInformation.MouseWheelScrollLines;
             var pixelsPerStep = lines < 0 ? viewport.Height : lines * list.ItemHeight;
             var delta = args.Delta * pixelsPerStep + wheelRemainder;
             wheelRemainder = delta % SystemInformation.MouseWheelScrollDelta;
-            SetOffset(ScrollOffset - delta / SystemInformation.MouseWheelScrollDelta);
+            var origin = wheelAnimation.Enabled ? wheelTarget : ScrollOffset;
+            wheelTarget = Math.Max(0, Math.Min(origin - delta / SystemInformation.MouseWheelScrollDelta, MaximumOffset));
+            if (wheelAnimation.Enabled || wheelTarget == ScrollOffset) return;
+            wheelPosition = ScrollOffset;
+            wheelFrame.Restart();
+            wheelAnimation.Start();
+        }
+
+        private void AdvanceWheel(object sender, EventArgs args)
+        {
+            // Retarget during fast wheel input without restarting the animation.
+            var elapsed = Math.Min(wheelFrame.Elapsed.TotalMilliseconds, 40);
+            wheelFrame.Restart();
+            wheelPosition += (wheelTarget - wheelPosition) * (1 - Math.Exp(-elapsed / WheelTimeConstantMs));
+            if (Math.Abs(wheelTarget - wheelPosition) < 0.75)
+            {
+                wheelAnimation.Stop();
+                wheelFrame.Stop();
+                SetOffset(wheelTarget);
+                return;
+            }
+            SetOffset((int)Math.Round(wheelPosition));
+        }
+
+        public void StopWheel()
+        {
+            wheelAnimation.Stop();
+            wheelFrame.Reset();
+            wheelRemainder = 0;
         }
 
         public void Reveal(int index)
         {
             if (index < 0) return;
+            StopWheel();
             var rowTop = index * list.ItemHeight;
             var firstOffsetShowingRow = rowTop + list.ItemHeight - viewport.Height;
             SetOffset(Math.Min(rowTop, Math.Max(ScrollOffset, firstOffsetShowingRow)));
@@ -1039,6 +1140,12 @@ internal sealed class MainWindow : Form
             list.Update();
             Invalidate();
             Update();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) wheelAnimation.Dispose();
+            base.Dispose(disposing);
         }
     }
 

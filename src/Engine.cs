@@ -32,11 +32,13 @@ internal sealed class Engine : IDisposable
     private const string CommunityAlt10Tls = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_4pda_to.bin --dpi-desync-fake-tls-mod=none";
     private const string HostOnlyTls = "--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
-    private const string DarktideUdpPorts = "35500-35650";
+    private const string DarktideUdpPorts = "35500-35650,35670";
     private const string SpaceMarineTcpPorts = "11700-11720";
     private const string SpaceMarineUdpPorts = "48800-55000";
     private const string SpaceMarineHosts = "--hostlist=../profiles/space-marine-2.txt";
-    private const string SpaceMarineNetworks = "--ipset=../profiles/space-marine-2-ip.txt";
+    private const string SpaceMarineSharedNetworks = "--ipset=../profiles/space-marine-2-ip.txt";
+    private const string SpaceMarineTcpNetworks = SpaceMarineSharedNetworks + " --ipset=../profiles/space-marine-2-tcp-ip.txt";
+    private const string SpaceMarineUdpNetworks = SpaceMarineSharedNetworks + " --ipset=../profiles/space-marine-2-udp-ip.txt";
     private const string DiscordVoicePorts = "19294-19344,50000-50100";
     private const string DiscordTlsPorts = "2053,2083,2087,2096,8443";
     private const string WarpUdpPorts = "500,1701,2408,4500,4443,8443,8095";
@@ -227,8 +229,8 @@ internal sealed class Engine : IDisposable
             GameRules(spaceMarine, out gameUdp, out gameTls);
             var tls = gameTls ?? (spaceMarine == Strategy.Alternate ? Alternate : Standard);
             // Existing service rules take priority, including Discord voice on overlapping UDP ports.
-            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineNetworks + " " + gameUdp));
-            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineNetworks + " " + tls);
+            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + gameUdp));
+            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + tls);
             rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + tls);
             rules.Add("--filter-udp=443 --filter-l7=quic " + SpaceMarineHosts +
                 " --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin");

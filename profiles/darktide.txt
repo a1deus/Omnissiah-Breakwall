@@ -3,6 +3,7 @@ atoma-discovery.com
 fatshark.se
 fatsharkgames.com
 fatshark.games
+login.shr-prod-identity.fatshark.services
 playdarktide.com
 mt2p.vivox.com
 bsp-sup-sd.atoma-discovery.com
