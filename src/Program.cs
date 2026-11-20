@@ -300,6 +300,7 @@ internal sealed class MainWindow : Form
         discordStrategy.AddImportedStrategy("DS", "Discord", "ALT12");
         discordStrategy.AddImportedStrategy("DS", "Discord", "ALT13");
         discordStrategy.AddImportedStrategy("DS", "Discord", "EXP");
+        discordStrategy.AddNumbered("DS", "Discord", ServiceStrategy.LegacyAlternateTls, "альтернативный TLS 1.3.0");
         discordStrategy.Restore(ServiceStrategy.Standard.ToString());
 
         youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
@@ -604,7 +605,7 @@ internal sealed class MainWindow : Form
             "выберите нужные варианты. У каждой стратегии есть код и короткое описание. " +
             "Игровые варианты DT и SM различаются обработкой UDP. Начните с DT01 или SM01. " +
             "Для сравнения попробуйте варианты 13–15 с другим числом повторов. " +
-            "DT02 также включает прежний альтернативный TLS для встроенных профилей Discord, включая CDN картинок. " +
+            "Для прежнего альтернативного TLS, включая CDN изображений Discord, выберите DS11 в разделе «Сервисы». " +
             "«Выключено» отключает правила для выбранной игры или сервиса. " +
             "Вернитесь на главный экран и нажмите «Включить». Во время подключения повторное нажатие на «Подождите» отменяет его. " +
             "Для смены стратегии или галочки WARP сначала остановите фильтр. " +

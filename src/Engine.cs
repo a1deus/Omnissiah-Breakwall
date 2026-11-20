@@ -15,7 +15,7 @@ internal enum Strategy
     ActiveGameShortTen, ActiveGameMediumFourteen, ActiveGameMediumTen,
     ActiveGameSix, ActiveGameEight, ActiveGameFour, None
 }
-internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None }
+internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None, LegacyAlternateTls }
 internal enum WarpStrategy { Standard, QuicBurst, MasqueTls, None }
 
 internal sealed class Engine : IDisposable
@@ -203,7 +203,7 @@ internal sealed class Engine : IDisposable
         var darktideEnabled = darktide != Strategy.None;
         var spaceMarineEnabled = spaceMarine != Strategy.None;
         var discordEnabled = discordDs != null || discord != ServiceStrategy.None;
-        var useDiscordAlternateTls = darktide == Strategy.Alternate && discordEnabled && discordDs == null;
+        var useDiscordAlternateTls = discord == ServiceStrategy.LegacyAlternateTls;
         var youtubeEnabled = youtubeDs != null || youtube != ServiceStrategy.None;
         var warpEnabled = warp != WarpStrategy.None;
 
@@ -218,7 +218,7 @@ internal sealed class Engine : IDisposable
         var hosts = new List<string>();
         const string darktideHosts = "--hostlist=../profiles/darktide.txt";
         const string discordHosts = "--hostlist=../profiles/discord.txt";
-        if (discordEnabled && discordDs == null) hosts.Add(discordHosts);
+        if (discordEnabled && discordDs == null && !useDiscordAlternateTls) hosts.Add(discordHosts);
         if (darktideEnabled)
         {
             hosts.Add(darktideHosts);
@@ -240,7 +240,7 @@ internal sealed class Engine : IDisposable
             }
             else
             {
-                if (discord != ServiceStrategy.Standard)
+                if (discord != ServiceStrategy.Standard && !useDiscordAlternateTls)
                     rules.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord)
                         .Replace("{darktide-exclusion}", exclusion));
                 var discordTls = useDiscordAlternateTls ? DiscordAlternateTls : Standard;
@@ -248,16 +248,12 @@ internal sealed class Engine : IDisposable
             }
         }
 
-        if (hosts.Count != 0)
+        if (hosts.Count != 0 || useDiscordAlternateTls)
         {
             var webRules = ReadProfile(Path.Combine(profiles, "base.args"));
             if (useDiscordAlternateTls)
-            {
-                // DT02 used the alternate TLS recipe for Discord in version 1.3.0.
                 rules.Add(webRules.Replace("{hosts}", discordHosts).Replace("{tls}", DiscordAlternateTls));
-                rules.Add(webRules.Replace("{hosts}", darktideHosts).Replace("{tls}", Standard));
-            }
-            else
+            if (hosts.Count != 0)
                 rules.Add(webRules.Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", Standard));
         }
         if (warpEnabled)
