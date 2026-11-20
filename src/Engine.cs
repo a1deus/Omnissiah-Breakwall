@@ -6,19 +6,22 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 internal enum Strategy
 {
-    Standard, Alternate, FlowAlt2, FlowAlt3, FlowAlt7, FlowAlt10, FlowAlt11,
-    FlowExp, FlowSimpleAlt2, FlowSimple, Combined, FlowAlt12, CommunityAlt10, None
+    Standard, Alternate, FlowAlt2, FlowAlt3, FlowExp, FlowSimpleAlt2, Combined, FlowAlt12, CommunityAlt10,
+    ActiveGameShortTen, ActiveGameMediumFourteen, ActiveGameMediumTen,
+    ActiveGameSix, ActiveGameEight, ActiveGameFour, None
 }
 internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None }
+internal enum WarpStrategy { Standard, QuicBurst, MasqueTls, None }
 
 internal sealed class Engine : IDisposable
 {
     private const string Standard = "--dpi-desync=multisplit --dpi-desync-split-pos=1 --dpi-desync-split-seqovl=568 --dpi-desync-split-seqovl-pattern=tls_clienthello_4pda_to.bin";
-    private const string Alternate = "--dpi-desync=fake,multisplit --dpi-desync-split-pos=1 --dpi-desync-split-seqovl=681 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com";
+    private const string DiscordAlternateTls = "--dpi-desync=fake,multisplit --dpi-desync-split-pos=1 --dpi-desync-split-seqovl=681 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com";
     private const string BadSequence = "--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=10000000 --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com";
     private const string TimestampFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls-mod=none";
     private const string HostSplit = "--dpi-desync=fake,hostfakesplit --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1 --dpi-desync-fooling=ts";
@@ -27,10 +30,6 @@ internal sealed class Engine : IDisposable
     private const string SimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin";
     private const string DiscordSimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin";
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
-    private const string FlowAlt2Tls = "--dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
-    private const string FlowAlt12Tls = "--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_max_ru.bin --dpi-desync-fake-tls=stun.bin --dpi-desync-fake-tls=tls_clienthello_max_ru.bin";
-    private const string CommunityAlt10Tls = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_4pda_to.bin --dpi-desync-fake-tls-mod=none";
-    private const string HostOnlyTls = "--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
     private const string DarktideUdpPorts = "35500-35650,35670";
     private const string SpaceMarineTcpPorts = "11700-11720";
@@ -58,12 +57,13 @@ internal sealed class Engine : IDisposable
         get { lock (output) return string.Join(Environment.NewLine, output.ToArray()); }
     }
 
-    public void Start(Strategy darktide, bool warp, ServiceStrategy discord, ServiceStrategy youtube,
-        Strategy spaceMarine = Strategy.None)
+    public bool Start(StrategySelection<Strategy> darktide, StrategySelection<WarpStrategy> warp,
+        StrategySelection<ServiceStrategy> discord, StrategySelection<ServiceStrategy> youtube,
+        StrategySelection<Strategy> spaceMarine, CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         var arguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
-        if (arguments.Length == 0)
-            throw new InvalidOperationException("Выберите хотя бы одну стратегию или подключите WARP.");
+        if (arguments.Length == 0) return false;
 
         foreach (var name in new[] { "winws", "winws2" })
         {
@@ -79,6 +79,7 @@ internal sealed class Engine : IDisposable
         child.ErrorDataReceived += Receive;
         try
         {
+            cancellation.ThrowIfCancellationRequested();
             job = CreateKillJob();
             child.Start();
             process = child;
@@ -86,7 +87,7 @@ internal sealed class Engine : IDisposable
                 throw new System.ComponentModel.Win32Exception();
             child.BeginOutputReadLine();
             child.BeginErrorReadLine();
-            if (child.WaitForExit(900))
+            if (WaitForExit(child, 900, cancellation))
             {
                 child.WaitForExit();
                 throw new InvalidOperationException("winws завершился при запуске. Код " + child.ExitCode + ".");
@@ -98,13 +99,31 @@ internal sealed class Engine : IDisposable
             Dispose();
             throw;
         }
+        return true;
+    }
+
+    internal static bool WaitForExit(Process process, int timeout, CancellationToken cancellation)
+    {
+        if (!cancellation.CanBeCanceled) return process.WaitForExit(timeout);
+
+        var wait = Stopwatch.StartNew();
+        while (true)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var remaining = timeout - (int)wait.ElapsedMilliseconds;
+            if (remaining <= 0) return process.HasExited;
+            if (process.WaitForExit(Math.Min(remaining, 40))) return true;
+        }
     }
 
     public static int Validate(Strategy strategy, bool warp,
         ServiceStrategy discord = ServiceStrategy.Standard, ServiceStrategy youtube = ServiceStrategy.Standard,
         Strategy spaceMarine = Strategy.None)
     {
-        var arguments = Arguments(strategy, warp, discord, youtube, spaceMarine);
+        var arguments = Arguments(new StrategySelection<Strategy>(strategy),
+            new StrategySelection<WarpStrategy>(warp ? WarpStrategy.Standard : WarpStrategy.None),
+            new StrategySelection<ServiceStrategy>(discord), new StrategySelection<ServiceStrategy>(youtube),
+            new StrategySelection<Strategy>(spaceMarine));
         if (arguments.Length == 0) return 0;
         using (var child = new Process { StartInfo = Info("--dry-run " + arguments) })
         {
@@ -166,72 +185,100 @@ internal sealed class Engine : IDisposable
             return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
     }
 
-    private static string Arguments(Strategy darktide, bool warp, ServiceStrategy discord, ServiceStrategy youtube,
-        Strategy spaceMarine)
+    private static string Arguments(StrategySelection<Strategy> darktideSelection, StrategySelection<WarpStrategy> warpSelection,
+        StrategySelection<ServiceStrategy> discordSelection, StrategySelection<ServiceStrategy> youtubeSelection,
+        StrategySelection<Strategy> spaceMarineSelection)
     {
         var profiles = Path.Combine(Root, "profiles");
         var rules = new List<string>();
         var tcp = new List<string>();
         var udp = new List<string>();
+        var darktide = darktideSelection.BuiltIn;
+        var spaceMarine = spaceMarineSelection.BuiltIn;
+        var discord = discordSelection.BuiltIn;
+        var youtube = youtubeSelection.BuiltIn;
+        var warp = warpSelection.BuiltIn;
+        var discordDs = discordSelection.Imported;
+        var youtubeDs = youtubeSelection.Imported;
         var darktideEnabled = darktide != Strategy.None;
         var spaceMarineEnabled = spaceMarine != Strategy.None;
-        var discordEnabled = discord != ServiceStrategy.None;
-        var youtubeEnabled = youtube != ServiceStrategy.None;
-        var baseTls = darktide == Strategy.Alternate ? Alternate : Standard;
+        var discordEnabled = discordDs != null || discord != ServiceStrategy.None;
+        var useDiscordAlternateTls = darktide == Strategy.Alternate && discordEnabled && discordDs == null;
+        var youtubeEnabled = youtubeDs != null || youtube != ServiceStrategy.None;
+        var warpEnabled = warp != WarpStrategy.None;
 
         if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
-        if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warp)
+        if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warpEnabled)
         {
             tcp.Add("443");
             udp.Add("443");
         }
-        if (warp) udp.Add(WarpUdpPorts);
+        if (warpEnabled) udp.Add(WarpUdpPorts);
 
         var hosts = new List<string>();
         const string darktideHosts = "--hostlist=../profiles/darktide.txt";
-        if (discordEnabled) hosts.Add("--hostlist=../profiles/discord.txt");
+        const string discordHosts = "--hostlist=../profiles/discord.txt";
+        if (discordEnabled && discordDs == null) hosts.Add(discordHosts);
         if (darktideEnabled)
         {
             hosts.Add(darktideHosts);
             udp.Add(DarktideUdpPorts);
-            string gameUdp, gameTls;
-            GameRules(darktide, out gameUdp, out gameTls);
-            if (gameTls != null)
-                rules.Add("--filter-tcp=443 --filter-l7=tls " + darktideHosts + " " + gameTls);
-            rules.Add(GameUdpRule(DarktideUdpPorts, gameUdp));
+            rules.Add(GameUdpRule(DarktideUdpPorts, GameUdpOptions(darktide)));
         }
 
         if (discordEnabled)
         {
             tcp.Add(DiscordTlsPorts);
             udp.Add(spaceMarineEnabled ? "19294-19344" : DiscordVoicePorts);
-            if (discord != ServiceStrategy.Standard)
+            var exclusion = darktideEnabled ? " --hostlist-exclude=../profiles/darktide.txt" : "";
+            if (discordDs != null)
             {
-                var exclusion = darktideEnabled ? " --hostlist-exclude=../profiles/darktide.txt" : "";
-                rules.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord)
-                    .Replace("{darktide-exclusion}", exclusion));
+                var voice = spaceMarineEnabled ? discordDs.Voice.Replace("discord,stun,unknown", "discord,stun") : discordDs.Voice;
+                rules.Add("--filter-udp=" + DiscordVoicePorts + " " + voice);
+                rules.Add("--filter-tcp=" + DiscordTlsPorts + " --filter-l7=tls --hostlist-domains=discord.media " + discordDs.Media);
+                AddDsWebRules(rules, discordHosts + exclusion, discordDs);
             }
-            rules.Add(ReadProfile(Path.Combine(profiles, "discord-base.args")).Replace("{tls}", baseTls));
+            else
+            {
+                if (discord != ServiceStrategy.Standard)
+                    rules.Add(ServiceRules(Path.Combine(profiles, "discord-alt.args"), discord)
+                        .Replace("{darktide-exclusion}", exclusion));
+                var discordTls = useDiscordAlternateTls ? DiscordAlternateTls : Standard;
+                rules.Add(ReadProfile(Path.Combine(profiles, "discord-base.args")).Replace("{tls}", discordTls));
+            }
         }
 
         if (hosts.Count != 0)
-            rules.Add(ReadProfile(Path.Combine(profiles, "base.args"))
-                .Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", baseTls));
-        if (warp)
-            rules.Add(ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", baseTls));
-        if (youtubeEnabled)
+        {
+            var webRules = ReadProfile(Path.Combine(profiles, "base.args"));
+            if (useDiscordAlternateTls)
+            {
+                // DT02 used the alternate TLS recipe for Discord in version 1.3.0.
+                rules.Add(webRules.Replace("{hosts}", discordHosts).Replace("{tls}", DiscordAlternateTls));
+                rules.Add(webRules.Replace("{hosts}", darktideHosts).Replace("{tls}", Standard));
+            }
+            else
+                rules.Add(webRules.Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", Standard));
+        }
+        if (warpEnabled)
+        {
+            if (warp == WarpStrategy.MasqueTls)
+                rules.Add("--filter-tcp=443 --filter-l7=tls --ipset=../profiles/warp-masque.txt " + TimestampFake);
+            rules.Add(ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", Standard)
+                .Replace("{masque-quic-repeats}", warp == WarpStrategy.QuicBurst ? "11" : "6"));
+        }
+        if (youtubeDs != null)
+            AddDsYouTubeRules(rules, youtubeDs);
+        else if (youtubeEnabled)
             rules.Add(ServiceRules(Path.Combine(profiles, "youtube.args"), youtube));
         if (spaceMarineEnabled)
         {
             tcp.Add(SpaceMarineTcpPorts);
             udp.Add(SpaceMarineUdpPorts);
-            string gameUdp, gameTls;
-            GameRules(spaceMarine, out gameUdp, out gameTls);
-            var tls = gameTls ?? (spaceMarine == Strategy.Alternate ? Alternate : Standard);
             // Existing service rules take priority, including Discord voice on overlapping UDP ports.
-            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + gameUdp));
-            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + tls);
-            rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + tls);
+            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + GameUdpOptions(spaceMarine)));
+            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + Standard);
+            rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + Standard);
             rules.Add("--filter-udp=443 --filter-l7=quic " + SpaceMarineHosts +
                 " --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin");
         }
@@ -241,71 +288,63 @@ internal sealed class Engine : IDisposable
             " " + string.Join(" --new ", rules);
     }
 
+    private static void AddDsWebRules(List<string> rules, string hosts, DsStrategy profile)
+    {
+        rules.Add("--filter-udp=443 --filter-l7=quic " + hosts + " " + profile.Quic);
+        rules.Add("--filter-tcp=443 --filter-l7=tls " + hosts + " " + profile.Web);
+        rules.Add("--filter-tcp=80 --filter-l7=http " + hosts + " " + profile.Web);
+    }
+
+    private static void AddDsYouTubeRules(List<string> rules, DsStrategy profile)
+    {
+        const string hosts = "--hostlist=../profiles/youtube-core.txt --hostlist=../profiles/youtube.txt";
+        rules.Add("--filter-tcp=443 --filter-l7=tls " + hosts + " " + profile.Google);
+        rules.Add("--filter-udp=443 --filter-l7=quic " + hosts + " " + profile.IpQuic);
+        rules.Add("--filter-tcp=80 --filter-l7=http " + hosts + " " + profile.Web);
+    }
+
     private static string GameUdpRule(string ports, string options)
     {
         return "--filter-udp=" + ports + " --dpi-desync=fake --dpi-desync-any-protocol=1 " + options;
     }
 
-    private static void GameRules(Strategy strategy, out string udp, out string tls)
+    private static string GameUdpOptions(Strategy strategy)
     {
         const string stun = "--dpi-desync-fake-unknown-udp=stun.bin";
-        const string shortBurst = GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
-        const string mediumBurst = GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n3";
-        const string extendedBurst = GamePayload + " --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
-        tls = null;
         switch (strategy)
         {
             case Strategy.Standard:
-                udp = stun + " --dpi-desync-cutoff=n2";
-                break;
+                return stun + " --dpi-desync-cutoff=n2";
             case Strategy.Alternate:
-                udp = stun + " --dpi-desync-repeats=2 --dpi-desync-cutoff=n4";
-                break;
+                return stun + " --dpi-desync-repeats=2 --dpi-desync-cutoff=n4";
             case Strategy.FlowAlt2:
-                udp = shortBurst;
-                tls = FlowAlt2Tls;
-                break;
+                return GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
             case Strategy.FlowAlt3:
-                udp = extendedBurst;
-                tls = HostSplit;
-                break;
-            case Strategy.FlowAlt7:
-                udp = shortBurst;
-                tls = SniSplit;
-                break;
-            case Strategy.FlowAlt10:
-                udp = shortBurst;
-                tls = TimestampFake;
-                break;
-            case Strategy.FlowAlt11:
-                udp = extendedBurst;
-                tls = TimestampOverlap;
-                break;
+                return GamePayload + " --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
             case Strategy.FlowExp:
-                udp = "--dpi-desync-fake-unknown-udp=quic_initial_4pda_to.bin " +
+                return "--dpi-desync-fake-unknown-udp=quic_initial_4pda_to.bin " +
                     GamePayload + " --dpi-desync-repeats=5 --dpi-desync-cutoff=n4";
-                tls = HostOnlyTls;
-                break;
             case Strategy.FlowSimpleAlt2:
-                udp = mediumBurst;
-                tls = SimpleFake;
-                break;
-            case Strategy.FlowSimple:
-                udp = mediumBurst;
-                tls = HostOnlyTls;
-                break;
+                return GamePayload + " --dpi-desync-repeats=12 --dpi-desync-cutoff=n3";
             case Strategy.Combined:
-                udp = stun + " " + GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n4";
-                tls = Alternate;
-                break;
+                return stun + " " + GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n4";
             case Strategy.FlowAlt12:
-                udp = "--dpi-desync-fake-unknown-udp=quic_initial_dbankcloud_ru.bin --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
-                tls = FlowAlt12Tls;
-                break;
+                return "--dpi-desync-fake-unknown-udp=quic_initial_dbankcloud_ru.bin --dpi-desync-repeats=10 --dpi-desync-cutoff=n4";
             case Strategy.CommunityAlt10:
-                udp = "--dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
-                tls = CommunityAlt10Tls;
-                break;
+                return "--dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-cutoff=n2";
+            case Strategy.ActiveGameShortTen:
+                return GamePayload + " --dpi-desync-repeats=10 --dpi-desync-cutoff=n2";
+            case Strategy.ActiveGameMediumFourteen:
+                return GamePayload + " --dpi-desync-repeats=14 --dpi-desync-cutoff=n3";
+            case Strategy.ActiveGameMediumTen:
+                return GamePayload + " --dpi-desync-repeats=10 --dpi-desync-cutoff=n3";
+            // winws cutoff is exclusive, while the donor winws2 out-range is inclusive.
+            case Strategy.ActiveGameSix:
+                return GamePayload + " --dpi-desync-repeats=6 --dpi-desync-cutoff=n5";
+            case Strategy.ActiveGameEight:
+                return GamePayload + " --dpi-desync-repeats=8 --dpi-desync-cutoff=n4";
+            case Strategy.ActiveGameFour:
+                return GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n5";
             default:
                 throw new ArgumentOutOfRangeException("strategy");
         }

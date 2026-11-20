@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -80,19 +81,23 @@ internal sealed class MainWindow : Form
     private readonly Warp warp = new Warp();
     private readonly PowerButton toggle = new PowerButton();
     private readonly PictureBox logo = new PictureBox();
-    private readonly CheckBox useWarp = new AccentCheckBox();
+    private readonly CheckBox useWarp = new AccentCheckBox { DimWhenDisabled = true };
+    private readonly Button openStrategies = new DimmedSettingsButton();
     private readonly StrategyPicker<Strategy> darktideStrategy = new StrategyPicker<Strategy>("Darktide", Strategy.None);
     private readonly StrategyPicker<Strategy> spaceMarineStrategy = new StrategyPicker<Strategy>("Space Marine 2", Strategy.None);
     private readonly StrategyPicker<ServiceStrategy> discordStrategy = new StrategyPicker<ServiceStrategy>("Discord", ServiceStrategy.None);
     private readonly StrategyPicker<ServiceStrategy> youtubeStrategy = new StrategyPicker<ServiceStrategy>("YouTube", ServiceStrategy.None);
+    private readonly StrategyPicker<WarpStrategy> warpStrategy = new StrategyPicker<WarpStrategy>("WARP", WarpStrategy.None);
     private readonly Label status = new Label();
     private readonly Label message = new Label();
     private readonly LinkLabel details = new LinkLabel();
     private readonly System.Windows.Forms.Timer health = new System.Windows.Forms.Timer();
     private readonly Panel mainPage = new Panel { Dock = DockStyle.Fill };
+    private readonly Panel strategiesPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel settingsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel privacyPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel instructionsPage = new Panel { Dock = DockStyle.Fill, Visible = false };
+    private readonly Panel aboutPage = new Panel { Dock = DockStyle.Fill, Visible = false };
     private readonly Button navigation = new Button();
     private readonly CheckBox autoStart = new AccentCheckBox();
     private readonly CheckBox trayMode = new AccentCheckBox();
@@ -109,6 +114,7 @@ internal sealed class MainWindow : Form
     private readonly bool fromWindows;
     private bool active;
     private bool busy;
+    private CancellationTokenSource connectionAttempt;
     private bool allowClose;
     private bool exitRequested;
     private bool showingWindow;
@@ -133,9 +139,11 @@ internal sealed class MainWindow : Form
         ForeColor = Primary;
         Font = new Font("Segoe UI", 10);
         Controls.Add(mainPage);
+        Controls.Add(strategiesPage);
         Controls.Add(settingsPage);
         Controls.Add(privacyPage);
         Controls.Add(instructionsPage);
+        Controls.Add(aboutPage);
 
         logo.SetBounds(178, 23, 92, 92);
         logo.SizeMode = PictureBoxSizeMode.Zoom;
@@ -165,62 +173,36 @@ internal sealed class MainWindow : Form
         mainPage.Controls.Add(toggle);
 
         var settings = new Panel { BackColor = Surface };
-        settings.SetBounds(38, 343, 372, 215);
+        settings.SetBounds(38, 343, 372, 99);
         mainPage.Controls.Add(settings);
 
-        var strategiesHeading = new Label {
-            Text = "Стратегии", TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI Semibold", 10)
-        };
-        strategiesHeading.SetBounds(12, 7, 348, 21);
-        settings.Controls.Add(strategiesHeading);
-
-        darktideStrategy.SetBounds(12, 36, 348, 29);
-        AddGameStrategies(darktideStrategy, "DT", "Darktide UDP");
-        darktideStrategy.Restore(Strategy.Standard.ToString());
-        settings.Controls.Add(darktideStrategy);
-
-        spaceMarineStrategy.SetBounds(12, 72, 348, 29);
-        AddGameStrategies(spaceMarineStrategy, "SM", "Space Marine 2");
-        settings.Controls.Add(spaceMarineStrategy);
-
-        discordStrategy.SetBounds(12, 108, 348, 29);
-        discordStrategy.Add(ServiceStrategy.Standard, "DS01 - Discord · основной");
-        discordStrategy.Add(ServiceStrategy.BadSequence, "DS02 - Discord · TLS со смещением");
-        discordStrategy.Add(ServiceStrategy.TimestampFake, "DS03 - Discord · TLS с метками времени");
-        discordStrategy.Add(ServiceStrategy.HostSplit, "DS04 - Discord · подмена имени хоста");
-        discordStrategy.Add(ServiceStrategy.TimestampOverlap, "DS05 - Discord · TLS с перекрытием");
-        discordStrategy.Add(ServiceStrategy.SimpleFake, "DS06 - Discord · простой TLS");
-        discordStrategy.Add(ServiceStrategy.SniSplit, "DS07 - Discord · разбиение по SNI");
-        discordStrategy.Restore(ServiceStrategy.Standard.ToString());
-        settings.Controls.Add(discordStrategy);
-
-        youtubeStrategy.SetBounds(12, 144, 348, 29);
-        youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
-        youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YT02 - YouTube · TLS с метками времени");
-        youtubeStrategy.Add(ServiceStrategy.HostSplit, "YT03 - YouTube · подмена имени хоста");
-        youtubeStrategy.Add(ServiceStrategy.TimestampOverlap, "YT04 - YouTube · TLS с перекрытием");
-        youtubeStrategy.Add(ServiceStrategy.SimpleFake, "YT05 - YouTube · простой TLS");
-        youtubeStrategy.Add(ServiceStrategy.SniSplit, "YT06 - YouTube · разбиение по SNI");
-        youtubeStrategy.Restore(ServiceStrategy.Standard.ToString());
-        settings.Controls.Add(youtubeStrategy);
+        openStrategies.Text = "Настройка стратегий";
+        openStrategies.FlatStyle = FlatStyle.Flat;
+        openStrategies.Cursor = Cursors.Hand;
+        openStrategies.BackColor = Field;
+        openStrategies.ForeColor = Primary;
+        openStrategies.FlatAppearance.BorderColor = Border;
+        openStrategies.FlatAppearance.MouseOverBackColor = Border;
+        openStrategies.SetBounds(12, 12, 348, 34);
+        openStrategies.Click += (sender, args) => ShowPage(strategiesPage);
+        settings.Controls.Add(openStrategies);
 
         useWarp.Text = "Подключить WARP";
         useWarp.AutoSize = true;
-        useWarp.Location = new Point(0, 180);
+        useWarp.Location = new Point(0, 58);
         settings.Controls.Add(useWarp);
         settings.Layout += (sender, args) =>
             useWarp.Left = (settings.ClientSize.Width - useWarp.Width) / 2;
         settings.PerformLayout();
 
-        message.SetBounds(24, 561, 400, 31);
+        message.SetBounds(24, 452, 400, 48);
         message.TextAlign = ContentAlignment.MiddleCenter;
         message.ForeColor = Secondary;
         message.Font = new Font("Segoe UI", 9);
         mainPage.Controls.Add(message);
 
         details.Text = "Подробности";
-        details.SetBounds(24, 596, 400, 18);
+        details.SetBounds(24, 507, 400, 18);
         details.TextAlign = ContentAlignment.MiddleCenter;
         details.Font = new Font("Segoe UI", 8);
         details.LinkColor = Secondary;
@@ -239,16 +221,18 @@ internal sealed class MainWindow : Form
         mainPage.Controls.Add(motto);
 
         ConfigureNavigation();
+        BuildStrategiesPage();
         BuildSettingsPage();
         BuildPrivacyPage();
         BuildInstructionsPage();
+        BuildAboutPage();
         ConfigureTray();
 
         health.Interval = 1200;
         health.Tick += async (sender, args) =>
         {
-            if (busy || installingUpdate || !active) return;
-            if (engine.Running)
+            if (busy || installingUpdate || (!active && !warp.OwnsConnection)) return;
+            if (!active || engine.Running)
             {
                 if (warp.BuiltInNeedsStop)
                 {
@@ -257,7 +241,7 @@ internal sealed class MainWindow : Form
                     try
                     {
                         await warp.Disconnect();
-                        message.Text = "Туннель WARP остановлен. Фильтр работает.";
+                        message.Text = active ? "Туннель WARP остановлен. Фильтр работает." : "Туннель WARP остановлен.";
                     }
                     catch (Exception error)
                     {
@@ -281,6 +265,7 @@ internal sealed class MainWindow : Form
         spaceMarineStrategy.SelectionChanged += SavePreferences;
         discordStrategy.SelectionChanged += SavePreferences;
         youtubeStrategy.SelectionChanged += SavePreferences;
+        warpStrategy.SelectionChanged += SavePreferences;
         useWarp.CheckedChanged += SavePreferences;
         trayMode.CheckedChanged += (sender, args) =>
         {
@@ -296,21 +281,89 @@ internal sealed class MainWindow : Form
         }
     }
 
+    private void BuildStrategiesPage()
+    {
+        AddInformationHeading(strategiesPage, "Настройка стратегий");
+
+        AddGameStrategies(darktideStrategy, "DT", "Darktide");
+        darktideStrategy.Restore(Strategy.Standard.ToString());
+        AddGameStrategies(spaceMarineStrategy, "SM", "Space Marine 2");
+        AddStrategyGroup("Игры", 99, darktideStrategy, spaceMarineStrategy);
+
+        discordStrategy.Add(ServiceStrategy.Standard, "DS01 - Discord · основной");
+        discordStrategy.Add(ServiceStrategy.BadSequence, "DS02 - Discord · TLS со смещением");
+        discordStrategy.Add(ServiceStrategy.TimestampFake, "DS03 - Discord · TLS с метками времени");
+        discordStrategy.Add(ServiceStrategy.HostSplit, "DS04 - Discord · подмена имени хоста");
+        discordStrategy.Add(ServiceStrategy.TimestampOverlap, "DS05 - Discord · TLS с перекрытием");
+        discordStrategy.Add(ServiceStrategy.SimpleFake, "DS06 - Discord · простой TLS");
+        discordStrategy.Add(ServiceStrategy.SniSplit, "DS07 - Discord · разбиение по SNI");
+        discordStrategy.AddImportedStrategy("DS", "Discord", "ALT12");
+        discordStrategy.AddImportedStrategy("DS", "Discord", "ALT13");
+        discordStrategy.AddImportedStrategy("DS", "Discord", "EXP");
+        discordStrategy.Restore(ServiceStrategy.Standard.ToString());
+
+        youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
+        youtubeStrategy.Add(ServiceStrategy.TimestampFake, "YT02 - YouTube · TLS с метками времени");
+        youtubeStrategy.Add(ServiceStrategy.HostSplit, "YT03 - YouTube · подмена имени хоста");
+        youtubeStrategy.Add(ServiceStrategy.TimestampOverlap, "YT04 - YouTube · TLS с перекрытием");
+        youtubeStrategy.Add(ServiceStrategy.SimpleFake, "YT05 - YouTube · простой TLS");
+        youtubeStrategy.Add(ServiceStrategy.SniSplit, "YT06 - YouTube · разбиение по SNI");
+        youtubeStrategy.AddImportedStrategy("YT", "YouTube", "GENERAL", true, "DS:ALT6");
+        youtubeStrategy.AddImportedStrategy("YT", "YouTube", "ALT11", true);
+        youtubeStrategy.AddImportedStrategy("YT", "YouTube", "ALT12", true, "DS:EXP");
+        youtubeStrategy.AddImportedStrategy("YT", "YouTube", "SIMPLE FAKE ALT2", true, "DS:ALT10");
+        youtubeStrategy.Restore(ServiceStrategy.Standard.ToString());
+
+        warpStrategy.Add(WarpStrategy.Standard, "W01 - WARP · основной");
+        warpStrategy.Add(WarpStrategy.QuicBurst, "W02 - WARP · усиленный QUIC");
+        warpStrategy.Add(WarpStrategy.MasqueTls, "W03 - WARP · подмена TLS MASQUE");
+        warpStrategy.Restore(WarpStrategy.Standard.ToString());
+        AddStrategyGroup("Сервисы", 231, discordStrategy, youtubeStrategy, warpStrategy);
+
+        var warpHint = new Label {
+            Text = "Стратегия WARP применяется, если на главном экране отмечено «Подключить WARP».",
+            ForeColor = Secondary, Font = new Font("Segoe UI", 9)
+        };
+        warpHint.SetBounds(34, 407, 380, 45);
+        strategiesPage.Controls.Add(warpHint);
+    }
+
+    private void AddStrategyGroup(string title, int top, params Button[] pickers)
+    {
+        var group = new Panel { BackColor = Surface, AccessibleName = title };
+        group.SetBounds(34, top, 380, 41 + 38 * pickers.Length);
+        var heading = new Label { Text = title, Font = new Font("Segoe UI Semibold", 11) };
+        heading.SetBounds(12, 9, 356, 24);
+        group.Controls.Add(heading);
+        for (var index = 0; index < pickers.Length; index++)
+        {
+            pickers[index].SetBounds(12, 36 + 38 * index, 356, 32);
+            group.Controls.Add(pickers[index]);
+        }
+        strategiesPage.Controls.Add(group);
+    }
+
     private static void AddGameStrategies(StrategyPicker<Strategy> picker, string prefix, string game)
     {
-        picker.Add(Strategy.Standard, prefix + "01 - " + game + " · основной");
-        picker.Add(Strategy.Alternate, prefix + "02 - " + game + " · усиленный + TLS");
-        picker.Add(Strategy.FlowAlt2, prefix + "03 - " + game + " · разбиение TLS");
-        picker.Add(Strategy.FlowAlt3, prefix + "04 - " + game + " · подмена имени хоста");
-        picker.Add(Strategy.FlowAlt7, prefix + "05 - " + game + " · разбиение по SNI");
-        picker.Add(Strategy.FlowAlt10, prefix + "06 - " + game + " · TLS с метками времени");
-        picker.Add(Strategy.FlowAlt11, prefix + "07 - " + game + " · TLS с перекрытием");
-        picker.Add(Strategy.FlowExp, prefix + "08 - " + game + " · QUIC и UDP");
-        picker.Add(Strategy.FlowSimpleAlt2, prefix + "09 - " + game + " · простой TLS");
-        picker.Add(Strategy.FlowSimple, prefix + "10 - " + game + " · замена имени в TLS");
-        picker.Add(Strategy.Combined, prefix + "11 - " + game + " · STUN + игровой UDP");
-        picker.Add(Strategy.FlowAlt12, prefix + "12 - " + game + " · QUIC dbankcloud");
-        picker.Add(Strategy.CommunityAlt10, prefix + "13 - " + game + " · QUIC с AutoTTL");
+        picker.AddNumbered(prefix, game, Strategy.Standard, "основной STUN");
+        picker.AddNumbered(prefix, game, Strategy.Alternate, "усиленный STUN");
+        picker.AddNumbered(prefix, game, Strategy.FlowAlt2, "короткий игровой UDP",
+            "FlowAlt7", "FlowAlt10", "DS:GENERAL", "DS:ALT2", "DS:ALT6", "DS:ALT7", "DS:ALT8", "DS:ALT9", "DS:ALT10");
+        picker.AddNumbered(prefix, game, Strategy.FlowAlt3, "длинный игровой UDP",
+            "FlowAlt11", "DS:ALT3", "DS:ALT11", "DS:ALT12", "DS:ALT13");
+        picker.AddNumbered(prefix, game, Strategy.FlowExp, "QUIC + игровой UDP", "DS:EXP");
+        picker.AddNumbered(prefix, game, Strategy.FlowSimpleAlt2, "UDP · 12 повторов",
+            "FlowSimple", "DS:ALT", "DS:SIMPLE FAKE", "DS:SIMPLE FAKE ALT2");
+        picker.AddNumbered(prefix, game, Strategy.Combined, "STUN + игровой UDP");
+        picker.AddNumbered(prefix, game, Strategy.FlowAlt12, "QUIC dbankcloud");
+        picker.AddNumbered(prefix, game, Strategy.CommunityAlt10, "QUIC с AutoTTL");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameShortTen, "короткий UDP · 10 повторов",
+            "DS:ALT4", "DS:FAKE TLS AUTO", "DS:FAKE TLS AUTO ALT", "DS:FAKE TLS AUTO ALT2", "DS:FOR ALL", "DS:SIMPLE FAKE ALT");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameMediumFourteen, "UDP · 14 повторов", "DS:ALT5");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameMediumTen, "UDP · 10 повторов", "DS:FAKE TLS AUTO ALT3");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameSix, "UDP · 6 повторов");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameEight, "UDP · 8 повторов");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameFour, "UDP · 4 повтора");
     }
 
     private void ConfigureNavigation()
@@ -327,7 +380,7 @@ internal sealed class MainWindow : Form
         navigation.Click += (sender, args) =>
         {
             if (mainPage.Visible) ReadStartupSetting();
-            ShowPage(settingsPage.Visible ? mainPage : settingsPage);
+            ShowPage(settingsPage.Visible || strategiesPage.Visible ? mainPage : settingsPage);
         };
         Controls.Add(navigation);
         navigation.BringToFront();
@@ -337,12 +390,14 @@ internal sealed class MainWindow : Form
     private void ShowPage(Panel page)
     {
         mainPage.Visible = page == mainPage;
+        strategiesPage.Visible = page == strategiesPage;
         settingsPage.Visible = page == settingsPage;
         privacyPage.Visible = page == privacyPage;
         instructionsPage.Visible = page == instructionsPage;
+        aboutPage.Visible = page == aboutPage;
         navigation.Text = page == mainPage ? "\uE713" : "\uE72B";
         navigation.AccessibleName = page == mainPage ? "Настройки" :
-            page == privacyPage || page == instructionsPage ? "Назад в настройки" : "Назад";
+            page == privacyPage || page == instructionsPage || page == aboutPage ? "Назад в настройки" : "Назад";
         help.SetToolTip(navigation, navigation.AccessibleName);
     }
 
@@ -370,35 +425,21 @@ internal sealed class MainWindow : Form
         settingsPage.Controls.Add(settingsMessage);
         BuildUpdateControls();
 
-        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 129, ColumnCount = 1, RowCount = 4 };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 154, ColumnCount = 1, RowCount = 5 };
+        for (var index = 0; index < 4; index++)
+            footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
-        var instructions = PageLink("Инструкция");
-        instructions.Dock = DockStyle.Fill;
-        instructions.LinkClicked += (sender, args) =>
-        {
-            ShowPage(instructionsPage);
-            navigation.Focus();
-        };
-        footer.Controls.Add(instructions, 0, 0);
-        var privacy = PageLink("Политика конфиденциальности");
-        privacy.Dock = DockStyle.Fill;
-        privacy.LinkClicked += (sender, args) =>
-        {
-            ShowPage(privacyPage);
-            navigation.Focus();
-        };
-        footer.Controls.Add(privacy, 0, 1);
+        AddSettingsPageLink(footer, 0, "Инструкция", instructionsPage);
+        AddSettingsPageLink(footer, 1, "О приложении", aboutPage);
+        AddSettingsPageLink(footer, 2, "Политика конфиденциальности", privacyPage);
         var source = PageLink("Исходный код");
         source.Dock = DockStyle.Fill;
         source.LinkClicked += (sender, args) => OpenLink("https://github.com/a1deus/Omnissiah-Breakwall");
-        footer.Controls.Add(source, 0, 2);
+        footer.Controls.Add(source, 0, 3);
         footer.Controls.Add(new Label {
             Text = "v" + typeof(Program).Assembly.GetName().Version.ToString(3),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = Secondary, Dock = DockStyle.Fill
-        }, 0, 3);
+        }, 0, 4);
         settingsPage.Controls.Add(footer);
 
         startFilter.Enabled = false;
@@ -503,50 +544,76 @@ internal sealed class MainWindow : Form
         }
     }
 
+    private void AddSettingsPageLink(TableLayoutPanel footer, int row, string text, Panel page)
+    {
+        var link = PageLink(text);
+        link.Dock = DockStyle.Fill;
+        link.LinkClicked += (sender, args) =>
+        {
+            ShowPage(page);
+            if (!page.SelectNextControl(null, true, true, true, false)) navigation.Focus();
+        };
+        footer.Controls.Add(link, 0, row);
+    }
+
     private void BuildPrivacyPage()
     {
-        BuildInformationPage(privacyPage, "Политика\nконфиденциальности", 340,
-                "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
-                "Лаунчер не отправляет эти настройки или диагностические отчёты разработчику.\n\n" +
-                "При нажатии «Проверить обновления» лаунчер запрашивает сведения о последнем релизе у GitHub. " +
-                "Если пользователь подтверждает установку, он скачивает архив из GitHub Releases. " +
-                "GitHub получает IP соединения и обычные данные HTTP-запроса.\n\n" +
-                "Если пользователь включает WARP, клиент связывается с Cloudflare для подключения, " +
-                "а трафик, направленный в туннель, проходит через сеть Cloudflare. При первой регистрации " +
-                "встроенного клиента Cloudflare получает IP соединения и данные для регистрации устройства. " +
-                "Регистрационные данные встроенного WARP хранятся в профиле Windows в зашифрованном виде. " +
-                "При использовании официального клиента данные хранятся у него.");
+        AddInformationHeading(privacyPage, "Политика\nконфиденциальности");
+        var sections = AddInformationScroll(privacyPage, "Политика конфиденциальности");
+        var content = new RichTextBox {
+            BackColor = Background, ForeColor = Primary, BorderStyle = BorderStyle.None,
+            ReadOnly = true, WordWrap = true, DetectUrls = false, ScrollBars = RichTextBoxScrollBars.None,
+            AccessibleName = "Текст политики конфиденциальности", Size = new Size(380, 340), Margin = Padding.Empty
+        };
+        content.ContentsResized += (sender, args) => content.Height = args.NewRectangle.Height + 4;
+        content.Text =
+            "Лаунчер хранит выбранные стратегии и состояние галочки WARP локально в профиле Windows. " +
+            "Лаунчер не отправляет эти настройки или диагностические отчёты разработчику.\n\n" +
+            "При нажатии «Проверить обновления» лаунчер запрашивает сведения о последнем релизе у GitHub. " +
+            "Если пользователь подтверждает установку, он скачивает архив из GitHub Releases. " +
+            "GitHub получает IP соединения и обычные данные HTTP-запроса.\n\n" +
+            "Если пользователь включает WARP, клиент связывается с Cloudflare для подключения, " +
+            "а трафик, направленный в туннель, проходит через сеть Cloudflare. При первой регистрации " +
+            "встроенного клиента Cloudflare получает IP соединения и данные для регистрации устройства. " +
+            "Регистрационные данные встроенного WARP хранятся в профиле Windows в зашифрованном виде. " +
+            "При использовании официального клиента данные хранятся у него.";
+        sections.Controls.Add(content);
 
         var cloudflare = PageLink("Политика конфиденциальности Cloudflare WARP");
         cloudflare.TextAlign = ContentAlignment.MiddleLeft;
-        cloudflare.SetBounds(34, 454, 380, 30);
+        cloudflare.Size = new Size(380, 30);
+        cloudflare.Margin = new Padding(0, 10, 0, 0);
         cloudflare.LinkClicked += (sender, args) => OpenLink("https://developers.cloudflare.com/warp-client/privacy/");
-        privacyPage.Controls.Add(cloudflare);
+        sections.Controls.Add(cloudflare);
 
         var github = PageLink("Политика конфиденциальности GitHub");
         github.TextAlign = ContentAlignment.MiddleLeft;
-        github.SetBounds(34, 489, 380, 30);
+        github.Size = new Size(380, 30);
+        github.Margin = Padding.Empty;
         github.LinkClicked += (sender, args) => OpenLink("https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement");
-        privacyPage.Controls.Add(github);
+        sections.Controls.Add(github);
     }
 
     private void BuildInstructionsPage()
     {
         AddInformationHeading(instructionsPage, "Инструкция");
-        var sections = new FlowLayoutPanel {
-            FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true,
-            AccessibleName = "Разделы инструкции"
-        };
-        sections.SetBounds(34, 102, 397, 549);
-        instructionsPage.Controls.Add(sections);
+        var sections = AddInformationScroll(instructionsPage, "Разделы инструкции");
 
         AddInstructionSection(sections, "Стратегии",
-            "Выберите стратегию для нужной игры или сервиса и нажмите «Включить». " +
-            "«Выключено» отключает группу. Чтобы сменить стратегию, сначала нажмите «Выключить». " +
+            "На главном экране откройте «Настройка стратегий». В разделах «Игры» и «Сервисы» " +
+            "выберите нужные варианты. У каждой стратегии есть код и короткое описание. " +
+            "Игровые варианты DT и SM различаются обработкой UDP. Начните с DT01 или SM01. " +
+            "Для сравнения попробуйте варианты 13–15 с другим числом повторов. " +
+            "DT02 также включает прежний альтернативный TLS для встроенных профилей Discord, включая CDN картинок. " +
+            "«Выключено» отключает правила для выбранной игры или сервиса. " +
+            "Вернитесь на главный экран и нажмите «Включить». Во время подключения повторное нажатие на «Подождите» отменяет его. " +
+            "Для смены стратегии или галочки WARP сначала остановите фильтр. " +
             "Приложение запоминает ваш выбор.");
         AddInstructionSection(sections, "Cloudflare WARP",
-            "Если одной стратегии недостаточно, выключите фильтр, отметьте «Подключить WARP» и включите фильтр снова. " +
-            "При первой регистрации встроенного WARP приложение попросит подтвердить условия Cloudflare.");
+            "Выберите стратегию WARP в разделе «Сервисы» и отметьте «Подключить WARP» на главном экране. " +
+            "Начните с W01. Если подключение не удаётся, остановите фильтр и попробуйте W02 для QUIC или W03 для TLS MASQUE. " +
+            "С вариантом «WARP · Выключено» галочка запускает туннель без правил WARP. " +
+            "При первой регистрации встроенного клиента подтвердите условия Cloudflare.");
         AddInstructionSection(sections, "Работа в фоне",
             "В фоновом режиме окно скрывается в области уведомлений, а фильтр продолжает работать. " +
             "Чтобы остановить фильтр и закрыть приложение, выберите «Выход» в меню значка. " +
@@ -583,16 +650,67 @@ internal sealed class MainWindow : Form
         page.Controls.Add(heading);
     }
 
-    private static void BuildInformationPage(Panel page, string title, int height, string text)
+    private static FlowLayoutPanel AddInformationScroll(Panel page, string accessibleName)
     {
-        AddInformationHeading(page, title);
-        var content = new RichTextBox {
-            BackColor = Background, ForeColor = Primary, BorderStyle = BorderStyle.None,
-            ReadOnly = true, WordWrap = true, DetectUrls = false, ScrollBars = RichTextBoxScrollBars.Vertical,
-            AccessibleName = title.Replace('\n', ' '), Text = text
+        var content = new FlowLayoutPanel {
+            FlowDirection = FlowDirection.TopDown, WrapContents = false,
+            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink
         };
-        content.SetBounds(34, 102, 380, height);
-        page.Controls.Add(content);
+        var scrollView = new InformationScrollView(content) { AccessibleName = accessibleName };
+        scrollView.SetBounds(34, 102, 380 + SystemInformation.VerticalScrollBarWidth, 549);
+        page.Controls.Add(scrollView);
+        return content;
+    }
+
+    private void BuildAboutPage()
+    {
+        AddInformationHeading(aboutPage, "О приложении");
+        var description = new Label {
+            Text = "Omnissiah Breakwall — лаунчер для Windows с сетевыми профилями для Darktide, " +
+                "Space Marine 2, Discord и YouTube и поддержкой Cloudflare WARP.",
+            UseMnemonic = false, ForeColor = Secondary
+        };
+        description.SetBounds(34, 102, 380, 69);
+        aboutPage.Controls.Add(description);
+
+        var author = new Panel { BackColor = Surface, AccessibleName = "Автор" };
+        author.SetBounds(34, 186, 380, 118);
+        aboutPage.Controls.Add(author);
+        var authorHeading = new Label { Text = "Автор", ForeColor = Secondary };
+        authorHeading.SetBounds(12, 12, 356, 21);
+        author.Controls.Add(authorHeading);
+        var authorName = new Label { Text = "a1deus", Font = new Font("Segoe UI Semibold", 13) };
+        authorName.SetBounds(12, 33, 356, 25);
+        author.Controls.Add(authorName);
+        AddAboutButton(author, "GitHub", "https://github.com/a1deus/Omnissiah-Breakwall", 12);
+        AddAboutButton(author, "Steam", "https://steamcommunity.com/sharedfiles/filedetails/?id=3839586340", 195);
+
+        var sources = new Panel { BackColor = Surface, AccessibleName = "Авторы источников" };
+        sources.SetBounds(34, 320, 380, 140);
+        aboutPage.Controls.Add(sources);
+        var sourcesHeading = new Label { Text = "Авторы источников", Font = new Font("Segoe UI Semibold", 11) };
+        sourcesHeading.SetBounds(12, 12, 356, 25);
+        sources.Controls.Add(sourcesHeading);
+        var names = new[] { "Flowseal", "bol-van", "kinlay0" };
+        for (var index = 0; index < names.Length; index++)
+        {
+            var name = names[index];
+            var link = PageLink(name);
+            link.TextAlign = ContentAlignment.MiddleLeft;
+            link.SetBounds(12, 42 + 27 * index, 356, 27);
+            link.LinkClicked += (sender, args) => OpenLink("https://github.com/" + name);
+            sources.Controls.Add(link);
+        }
+    }
+
+    private void AddAboutButton(Panel card, string text, string url, int left)
+    {
+        var button = new Button { Text = text, FlatStyle = FlatStyle.Flat, BackColor = Field, Cursor = Cursors.Hand };
+        button.FlatAppearance.BorderColor = Border;
+        button.FlatAppearance.MouseOverBackColor = Border;
+        button.SetBounds(left, 69, 173, 34);
+        button.Click += (sender, args) => OpenLink(url);
+        card.Controls.Add(button);
     }
 
     private static LinkLabel PageLink(string label)
@@ -733,6 +851,7 @@ internal sealed class MainWindow : Form
                     case "SpaceMarine2": spaceMarineStrategy.Restore(value); break;
                     case "Discord": discordStrategy.Restore(value); break;
                     case "YouTube": youtubeStrategy.Restore(value); break;
+                    case "WarpStrategy": warpStrategy.Restore(value); break;
                     case "WARP":
                         bool enabled;
                         if (bool.TryParse(value, out enabled)) useWarp.Checked = enabled;
@@ -765,6 +884,7 @@ internal sealed class MainWindow : Form
                 "SpaceMarine2=" + spaceMarineStrategy.Selected,
                 "Discord=" + discordStrategy.Selected,
                 "YouTube=" + youtubeStrategy.Selected,
+                "WarpStrategy=" + warpStrategy.Selected,
                 "WARP=" + useWarp.Checked,
                 "Tray=" + trayMode.Checked,
                 "StartFilter=" + startFilter.Checked
@@ -797,11 +917,12 @@ internal sealed class MainWindow : Form
         private readonly ToolStripDropDown menu = new ToolStripDropDown();
         private readonly StrategyListBox options = new StrategyListBox();
         private readonly Panel viewport = new Panel();
-        private readonly StrategyScrollBar scrollBar;
+        private readonly DarkScrollBar scrollBar;
         private readonly ToolStripControlHost host;
+        private readonly Dictionary<string, int> savedChoices = new Dictionary<string, int>(StringComparer.Ordinal);
         private int selectedIndex;
 
-        public T Selected { get; private set; }
+        public StrategySelection<T> Selected { get; private set; }
         public event EventHandler SelectionChanged;
 
         public StrategyPicker(string service, T disabled)
@@ -822,9 +943,11 @@ internal sealed class MainWindow : Form
             options.DrawMode = DrawMode.OwnerDrawFixed;
             options.DisplayMember = "Value";
             options.DrawItem += DrawOption;
-            scrollBar = new StrategyScrollBar(options, viewport);
+            scrollBar = new DarkScrollBar(options, viewport, () => options.ItemHeight) {
+                AccessibleName = "Прокрутка списка стратегий"
+            };
             options.MouseWheel += scrollBar.ScrollWheel;
-            options.KeyboardSelectionChanged += (sender, args) => scrollBar.Reveal(options.SelectedIndex);
+            options.KeyboardSelectionChanged += (sender, args) => RevealSelectedOption();
             options.MouseClick += (sender, args) =>
             {
                 if (args.Button == MouseButtons.Left) Commit(options.IndexFromPoint(args.Location));
@@ -858,23 +981,44 @@ internal sealed class MainWindow : Form
 
         public void Add(T value, string label)
         {
-            var index = options.Items.Add(new KeyValuePair<T, string>(value, label));
+            Add(new StrategySelection<T>(value), label, new string[0]);
+        }
+
+        public void AddNumbered(string prefix, string service, T value, string description, params string[] aliases)
+        {
+            AddNumbered(prefix, service, new StrategySelection<T>(value), description, aliases);
+        }
+
+        public void AddImportedStrategy(string prefix, string service, string name, bool youtube = false, params string[] aliases)
+        {
+            var profile = DsStrategy.Get(name);
+            AddNumbered(prefix, service, new StrategySelection<T>(profile),
+                youtube ? profile.YouTubeDescription : profile.Description, aliases);
+        }
+
+        private void AddNumbered(string prefix, string service, StrategySelection<T> value, string description, string[] aliases)
+        {
+            var code = prefix + options.Items.Count.ToString("D2", CultureInfo.InvariantCulture);
+            Add(value, code + " - " + service + " · " + description, aliases);
+        }
+
+        private void Add(StrategySelection<T> value, string label, string[] aliases)
+        {
+            var index = options.Items.Add(new KeyValuePair<StrategySelection<T>, string>(value, label));
+            savedChoices.Add(value.ToString(), index);
+            foreach (var alias in aliases) savedChoices.Add(alias, index);
             if (index == 0) Select(index);
         }
 
         public void Restore(string value)
         {
-            for (var index = 0; index < options.Items.Count; index++)
-            {
-                if (Option(index).Key.ToString() != value) continue;
-                Select(index);
-                return;
-            }
+            int index;
+            if (savedChoices.TryGetValue(value, out index)) Select(index);
         }
 
-        private KeyValuePair<T, string> Option(int index)
+        private KeyValuePair<StrategySelection<T>, string> Option(int index)
         {
-            return (KeyValuePair<T, string>)options.Items[index];
+            return (KeyValuePair<StrategySelection<T>, string>)options.Items[index];
         }
 
         private void Select(int index)
@@ -933,9 +1077,15 @@ internal sealed class MainWindow : Form
             var above = PointToScreen(Point.Empty).Y - workingArea.Top;
             var openAbove = below < height && above > below;
             options.SelectedIndex = selectedIndex;
-            scrollBar.Reveal(selectedIndex);
+            RevealSelectedOption();
             menu.Show(this, new Point(0, openAbove ? -height : Height));
             options.Focus();
+        }
+
+        private void RevealSelectedOption()
+        {
+            if (options.SelectedIndex >= 0)
+                scrollBar.Reveal(options.SelectedIndex * options.ItemHeight, options.ItemHeight);
         }
 
         protected override void OnPaint(PaintEventArgs args)
@@ -970,13 +1120,83 @@ internal sealed class MainWindow : Form
         }
     }
 
-    private sealed class StrategyScrollBar : Control
+    private sealed class InformationScrollView : Panel
+    {
+        private readonly Panel viewport = new Panel();
+        private readonly FlowLayoutPanel content;
+        private readonly DarkScrollBar scrollBar;
+
+        public InformationScrollView(FlowLayoutPanel content)
+        {
+            this.content = content;
+            SetStyle(ControlStyles.Selectable, true);
+            TabStop = true;
+            scrollBar = new DarkScrollBar(content, viewport, () => Font.Height + 5) {
+                AccessibleName = "Прокрутка страницы"
+            };
+            Controls.Add(viewport);
+            viewport.Controls.Add(content);
+            Controls.Add(scrollBar);
+            viewport.MouseWheel += scrollBar.ScrollWheel;
+            content.MouseWheel += scrollBar.ScrollWheel;
+            content.ControlAdded += (sender, args) =>
+            {
+                var section = args.Control;
+                section.MouseWheel += scrollBar.ScrollWheel;
+                section.Enter += (source, eventArgs) => scrollBar.Reveal(section.Top, section.Height);
+            };
+            content.SizeChanged += (sender, args) => LayoutScrollBar();
+            SizeChanged += (sender, args) => LayoutScrollBar();
+            VisibleChanged += (sender, args) =>
+            {
+                if (Visible) LayoutScrollBar();
+                else scrollBar.StopWheel();
+            };
+            LayoutScrollBar();
+        }
+
+        private void LayoutScrollBar()
+        {
+            var height = ClientSize.Height;
+            var scrollWidth = content.Height > height
+                ? Math.Min(ClientSize.Width, SystemInformation.VerticalScrollBarWidth) : 0;
+            viewport.SetBounds(0, 0, ClientSize.Width - scrollWidth, height);
+            scrollBar.SetBounds(viewport.Right, 0, scrollWidth, height);
+            scrollBar.Visible = scrollWidth > 0;
+            scrollBar.RefreshRange();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs args)
+        {
+            base.OnMouseWheel(args);
+            scrollBar.ScrollWheel(this, args);
+        }
+
+        protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+        {
+            if (!Focused) return base.ProcessCmdKey(ref message, keyData);
+            switch (keyData)
+            {
+                case Keys.Up: scrollBar.ScrollBy(-Font.Height); break;
+                case Keys.Down: scrollBar.ScrollBy(Font.Height); break;
+                case Keys.PageUp: scrollBar.ScrollBy(-viewport.Height); break;
+                case Keys.PageDown: scrollBar.ScrollBy(viewport.Height); break;
+                case Keys.Home: scrollBar.ScrollTo(0); break;
+                case Keys.End: scrollBar.ScrollTo(int.MaxValue); break;
+                default: return base.ProcessCmdKey(ref message, keyData);
+            }
+            return true;
+        }
+    }
+
+    private sealed class DarkScrollBar : Control
     {
         private const int TrackInset = 3;
         private const int MinimumThumbHeight = 18;
         private const double WheelTimeConstantMs = 38;
-        private readonly ListBox list;
+        private readonly Control content;
         private readonly Control viewport;
+        private readonly Func<int> wheelLineHeight;
         private readonly System.Windows.Forms.Timer wheelAnimation = new System.Windows.Forms.Timer { Interval = 15 };
         private readonly Stopwatch wheelFrame = new Stopwatch();
         private int dragStartY;
@@ -987,19 +1207,19 @@ internal sealed class MainWindow : Form
         private int wheelTarget;
         private double wheelPosition;
 
-        public StrategyScrollBar(ListBox list, Control viewport)
+        public DarkScrollBar(Control content, Control viewport, Func<int> wheelLineHeight)
         {
-            this.list = list;
+            this.content = content;
             this.viewport = viewport;
+            this.wheelLineHeight = wheelLineHeight;
             BackColor = Surface;
-            AccessibleName = "Прокрутка списка стратегий";
             SetStyle(ControlStyles.Selectable, false);
             SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
             wheelAnimation.Tick += AdvanceWheel;
         }
 
-        private int ScrollOffset { get { return -list.Top; } }
-        private int MaximumOffset { get { return Math.Max(0, list.Height - viewport.Height); } }
+        private int ScrollOffset { get { return -content.Top; } }
+        private int MaximumOffset { get { return Math.Max(0, content.Height - viewport.Height); } }
 
         private Rectangle Thumb
         {
@@ -1007,7 +1227,7 @@ internal sealed class MainWindow : Form
             {
                 var track = Rectangle.Inflate(ClientRectangle, -TrackInset, -TrackInset);
                 var height = Math.Min(track.Height, Math.Max(MinimumThumbHeight,
-                    track.Height * viewport.Height / Math.Max(1, list.Height)));
+                    track.Height * viewport.Height / Math.Max(1, content.Height)));
                 var travel = track.Height - height;
                 var top = track.Top + (int)Math.Round(travel * (double)ScrollOffset / Math.Max(1, MaximumOffset));
                 return new Rectangle(track.Left, top, track.Width, height);
@@ -1017,7 +1237,8 @@ internal sealed class MainWindow : Form
         protected override void OnPaint(PaintEventArgs args)
         {
             base.OnPaint(args);
-            if (MaximumOffset == 0) return;
+            if (MaximumOffset == 0 || ClientSize.Width <= 2 * TrackInset ||
+                ClientSize.Height <= 2 * TrackInset) return;
             var level = dragging || hovered ? 125 : 91;
             using (var brush = new SolidBrush(Color.FromArgb(level, level, level)))
                 args.Graphics.FillRectangle(brush, Thumb);
@@ -1089,7 +1310,7 @@ internal sealed class MainWindow : Form
             if (handled != null) handled.Handled = true;
             if (MaximumOffset == 0 || dragging) return;
             var lines = SystemInformation.MouseWheelScrollLines;
-            var pixelsPerStep = lines < 0 ? viewport.Height : lines * list.ItemHeight;
+            var pixelsPerStep = lines < 0 ? viewport.Height : lines * wheelLineHeight();
             var delta = args.Delta * pixelsPerStep + wheelRemainder;
             wheelRemainder = delta % SystemInformation.MouseWheelScrollDelta;
             var origin = wheelAnimation.Enabled ? wheelTarget : ScrollOffset;
@@ -1123,21 +1344,35 @@ internal sealed class MainWindow : Form
             wheelRemainder = 0;
         }
 
-        public void Reveal(int index)
+        public void Reveal(int top, int height)
         {
-            if (index < 0) return;
+            var firstOffsetShowingItem = top + height - viewport.Height;
+            ScrollTo(Math.Min(top, Math.Max(ScrollOffset, firstOffsetShowingItem)));
+        }
+
+        public void ScrollBy(int pixels)
+        {
+            ScrollTo(ScrollOffset + pixels);
+        }
+
+        public void ScrollTo(int offset)
+        {
             StopWheel();
-            var rowTop = index * list.ItemHeight;
-            var firstOffsetShowingRow = rowTop + list.ItemHeight - viewport.Height;
-            SetOffset(Math.Min(rowTop, Math.Max(ScrollOffset, firstOffsetShowingRow)));
+            SetOffset(offset);
+        }
+
+        public void RefreshRange()
+        {
+            SetOffset(ScrollOffset);
+            Invalidate();
         }
 
         private void SetOffset(int offset)
         {
             var clamped = Math.Max(0, Math.Min(offset, MaximumOffset));
             if (clamped == ScrollOffset) return;
-            list.Top = -clamped;
-            list.Update();
+            content.Top = -clamped;
+            content.Update();
             Invalidate();
             Update();
         }
@@ -1174,6 +1409,14 @@ internal sealed class MainWindow : Form
 
     private async Task Switch()
     {
+        if (connectionAttempt != null)
+        {
+            if (connectionAttempt.IsCancellationRequested) return;
+            message.Text = "Отмена подключения…";
+            connectionAttempt.Cancel();
+            RefreshControls();
+            return;
+        }
         if (busy || installingUpdate) return;
         if (active || warp.OwnsConnection)
         {
@@ -1181,55 +1424,66 @@ internal sealed class MainWindow : Form
             return;
         }
 
+        using (var attempt = new CancellationTokenSource())
+        {
+            connectionAttempt = attempt;
+            var cancellation = attempt.Token;
+            busy = true;
+            diagnostics = null;
+            message.Text = "Запуск сетевого фильтра…";
+            RefreshControls();
+            try
+            {
+                await StartSession(cancellation);
+                if (cancellation.IsCancellationRequested && await ReleaseSession() && diagnostics == null)
+                    message.Text = "Подключение отменено.";
+            }
+            finally
+            {
+                connectionAttempt = null;
+                busy = false;
+                RefreshControls();
+            }
+        }
+    }
+
+    private async Task StartSession(CancellationToken cancellation)
+    {
         var profile = darktideStrategy.Selected;
         var spaceMarine = spaceMarineStrategy.Selected;
         var discord = discordStrategy.Selected;
         var youtube = youtubeStrategy.Selected;
         var withWarp = useWarp.Checked && warp.Installed;
-        if (!withWarp && profile == Strategy.None && spaceMarine == Strategy.None &&
-            discord == ServiceStrategy.None && youtube == ServiceStrategy.None)
-        {
-            message.Text = "Выберите хотя бы одну стратегию или подключите WARP.";
-            return;
-        }
-
-        busy = true;
-        diagnostics = null;
-        message.Text = "Запуск сетевого фильтра…";
-        RefreshControls();
+        var warpProfile = withWarp ? warpStrategy.Selected : new StrategySelection<WarpStrategy>(WarpStrategy.None);
         try
         {
-            await Task.Run(() => engine.Start(profile, withWarp, discord, youtube, spaceMarine));
-            active = true;
-            message.Text = "Фильтр запущен.";
+            active = await Task.Run(() => engine.Start(profile, warpProfile, discord, youtube, spaceMarine, cancellation), cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            message.Text = active ? "Фильтр запущен." : "Выберите хотя бы одну стратегию или подключите WARP.";
             if (withWarp)
             {
-                if (warp.UsesOfficialClient)
-                {
-                    message.Text = "Фильтр запущен. Подключение WARP…";
-                    message.Text = await warp.ConnectOfficial();
-                }
-                else if (warp.OtherVpnActive())
-                    message.Text = "WARP пропущен: обнаружен другой активный VPN.";
-                else if (!warp.Registered && !ConfirmWarpRegistration())
-                    message.Text = "Фильтр работает. Регистрация WARP отменена.";
-                else
-                {
-                    message.Text = "Фильтр запущен. Подключение WARP…";
-                    message.Text = await warp.Connect();
-                }
+                var result = await ConnectWarp(cancellation);
+                cancellation.ThrowIfCancellationRequested();
+                message.Text = !active && result == Warp.ConnectedMessage ? "WARP подключён." : result;
             }
         }
         catch (Exception error)
         {
+            if (cancellation.IsCancellationRequested) return;
             diagnostics = error.ToString();
             message.Text = active ? "Фильтр запущен. Ошибка Cloudflare WARP." : error.Message;
         }
-        finally
+    }
+
+    private Task<string> ConnectWarp(CancellationToken cancellation)
+    {
+        if (!warp.UsesOfficialClient)
         {
-            busy = false;
-            RefreshControls();
+            if (warp.OtherVpnActive()) return Task.FromResult("WARP пропущен: обнаружен другой активный VPN.");
+            if (!warp.Registered && !ConfirmWarpRegistration()) return Task.FromResult("Регистрация WARP отменена.");
         }
+        message.Text = active ? "Фильтр запущен. Подключение WARP…" : "Подключение WARP…";
+        return warp.UsesOfficialClient ? warp.ConnectOfficial(cancellation) : warp.Connect(cancellation);
     }
 
     private bool ConfirmWarpRegistration()
@@ -1247,10 +1501,20 @@ internal sealed class MainWindow : Form
     {
         busy = true;
         RefreshControls();
+        try { return await ReleaseSession(); }
+        finally
+        {
+            busy = false;
+            RefreshControls();
+        }
+    }
+
+    private async Task<bool> ReleaseSession()
+    {
         try
         {
             await warp.Disconnect();
-            message.Text = IdleMessage;
+            if (connectionAttempt == null) message.Text = IdleMessage;
         }
         catch (Exception error)
         {
@@ -1263,37 +1527,41 @@ internal sealed class MainWindow : Form
             diagnostics = error.ToString();
             message.Text = "Ошибка при остановке фильтра. Откройте подробности.";
         }
-        finally
-        {
-            active = false;
-            busy = false;
-            RefreshControls();
-        }
+        finally { active = false; }
         return !warp.OwnsConnection;
     }
 
     private void RefreshControls()
     {
-        status.Text = busy ? "Пожалуйста, подождите" :
-            active ? "Фильтр включён" : "Фильтр выключен";
-        status.ForeColor = active ? Primary : Secondary;
-        toggle.Active = active;
-        toggle.Text = busy ? "Подождите" :
-            active ? "Выключить" : warp.OwnsConnection ? "Отключить WARP" : "Включить";
-        toggle.Enabled = !busy && !installingUpdate;
+        var warpActive = warp.OwnsConnection;
+        var sessionActive = active || warpActive;
+        var cancelling = connectionAttempt != null && connectionAttempt.IsCancellationRequested;
+        var canCancel = connectionAttempt != null && !cancelling;
+        status.Text = cancelling ? "Отменяем подключение" : busy ? "Пожалуйста, подождите" :
+            active ? "Фильтр включён" : warpActive ? "WARP включён" : "Фильтр выключен";
+        status.ForeColor = sessionActive ? Primary : Secondary;
+        toggle.Active = sessionActive;
+        toggle.Busy = busy;
+        toggle.Text = cancelling ? "Отмена…" : busy ? "Подождите" :
+            active ? "Выключить" : warpActive ? "Отключить WARP" : "Включить";
+        toggle.AccessibleDescription = canCancel ? "Повторное нажатие отменяет подключение." : null;
+        toggle.Enabled = (!busy || canCancel) && !installingUpdate;
         toggle.Invalidate();
         tray.Text = Program.Name + " — " + status.Text;
-        traySwitch.Text = busy ? "Подождите" :
-            active ? "Выключить фильтр" : warp.OwnsConnection ? "Отключить WARP" : "Включить фильтр";
-        traySwitch.Enabled = trayExit.Enabled = !busy && !installingUpdate;
+        traySwitch.Text = canCancel ? "Отменить подключение" : busy ? toggle.Text :
+            active ? "Выключить фильтр" : warpActive ? "Отключить WARP" : "Включить фильтр";
+        traySwitch.Enabled = toggle.Enabled;
+        trayExit.Enabled = !busy && !installingUpdate;
         updateButton.Enabled = !busy && !checkingUpdate && !installingUpdate;
         updateButton.Text = availableUpdate == null ? "Проверить обновления" :
             "Установить v" + availableUpdate.Version.ToString(3);
-        var canConfigure = !busy && !active && !warp.OwnsConnection;
+        var canConfigure = !busy && !sessionActive;
+        openStrategies.Enabled = canConfigure;
         darktideStrategy.Enabled = canConfigure;
         spaceMarineStrategy.Enabled = canConfigure;
         discordStrategy.Enabled = canConfigure;
         youtubeStrategy.Enabled = canConfigure;
+        warpStrategy.Enabled = canConfigure;
         useWarp.Enabled = canConfigure && warp.Installed;
         details.Visible = !busy && diagnostics != null;
     }
@@ -1352,6 +1620,8 @@ internal sealed class MainWindow : Form
 
 internal sealed class AccentCheckBox : CheckBox
 {
+    public bool DimWhenDisabled { get; set; }
+
     protected override void OnPaint(PaintEventArgs args)
     {
         var graphics = args.Graphics;
@@ -1361,7 +1631,14 @@ internal sealed class AccentCheckBox : CheckBox
         var box = new Rectangle(1, (ClientSize.Height - size) / 2, size, size);
         var orange = Color.FromArgb(255, 155, 74);
         var foreground = Enabled ? ForeColor : Color.FromArgb(170, 170, 170);
-        using (var border = new Pen(Checked ? orange : Color.FromArgb(125, 125, 125), scale))
+        var borderColor = Color.FromArgb(125, 125, 125);
+        if (!Enabled && DimWhenDisabled)
+        {
+            orange = DisabledAppearance.Blend(orange, BackColor);
+            foreground = DisabledAppearance.Blend(ForeColor, BackColor);
+            borderColor = DisabledAppearance.Blend(borderColor, BackColor);
+        }
+        using (var border = new Pen(Checked ? orange : borderColor, scale))
             graphics.DrawRectangle(border, box);
         if (Checked)
         {
@@ -1383,9 +1660,43 @@ internal sealed class AccentCheckBox : CheckBox
     }
 }
 
+internal sealed class DimmedSettingsButton : Button
+{
+    protected override void OnPaint(PaintEventArgs args)
+    {
+        if (Enabled)
+        {
+            base.OnPaint(args);
+            return;
+        }
+
+        var background = Parent.BackColor;
+        var graphics = args.Graphics;
+        graphics.Clear(DisabledAppearance.Blend(BackColor, background));
+        var border = DisabledAppearance.Blend(FlatAppearance.BorderColor, background);
+        ControlPaint.DrawBorder(graphics, ClientRectangle, border, ButtonBorderStyle.Solid);
+        TextRenderer.DrawText(graphics, Text, Font, ClientRectangle, DisabledAppearance.Blend(ForeColor, background),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+    }
+}
+
+internal static class DisabledAppearance
+{
+    private const double Opacity = 0.4; // 60% transparency over the settings card.
+
+    public static Color Blend(Color color, Color background)
+    {
+        return Color.FromArgb(
+            (int)Math.Round(background.R + (color.R - background.R) * Opacity),
+            (int)Math.Round(background.G + (color.G - background.G) * Opacity),
+            (int)Math.Round(background.B + (color.B - background.B) * Opacity));
+    }
+}
+
 internal sealed class PowerButton : Button
 {
     public bool Active { get; set; }
+    public bool Busy { get; set; }
     private bool hover;
 
     protected override void OnSizeChanged(EventArgs args)
@@ -1423,16 +1734,18 @@ internal sealed class PowerButton : Button
         var circle = new RectangleF(8 * scale, 8 * scale, Width - 16 * scale, Height - 16 * scale);
         var highlighted = hover && Enabled;
         var ring = highlighted ? 134 : 92;
-        var outlineColor = Active ? Color.FromArgb(255, 183, 111) : Color.FromArgb(ring, ring, ring);
-        var glowColor = Active ? Color.FromArgb(255, 115, 27) : outlineColor;
+        var lit = Busy || Active;
+        var outlineColor = Busy ? Color.FromArgb(211, 211, 211) :
+            Active ? Color.FromArgb(255, 183, 111) : Color.FromArgb(ring, ring, ring);
+        var glowColor = Active && !Busy ? Color.FromArgb(255, 115, 27) : outlineColor;
         var shade = highlighted ? 39 : 26;
-        using (var halo = new Pen(Color.FromArgb(Active ? 37 : 0, glowColor), 13 * scale))
-        using (var glow = new Pen(Color.FromArgb(Active ? 115 : 31, glowColor), 6 * scale))
-        using (var outline = new Pen(outlineColor, (Active ? 2.1f : 1.6f) * scale))
+        using (var halo = new Pen(Color.FromArgb(lit ? 37 : 0, glowColor), 13 * scale))
+        using (var glow = new Pen(Color.FromArgb(lit ? 115 : 31, glowColor), 6 * scale))
+        using (var outline = new Pen(outlineColor, (lit ? 2.1f : 1.6f) * scale))
         using (var fill = new SolidBrush(Color.FromArgb(shade, shade, shade)))
         {
             graphics.FillEllipse(fill, circle);
-            if (Active) graphics.DrawEllipse(halo, circle);
+            if (lit) graphics.DrawEllipse(halo, circle);
             graphics.DrawEllipse(glow, circle);
             graphics.DrawEllipse(outline, circle);
         }

@@ -1,0 +1,59 @@
+# Selected Discord and YouTube recipes adapted from Flowseal general*.bat profiles.
+
+[GENERAL]
+Description=разбиение TLS
+Web=--dpi-desync=multisplit --dpi-desync-split-seqovl=568 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=tls_clienthello_4pda_to.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--ip-id=zero --dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=6
+Media=--dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin
+
+[ALT11]
+Description=перекрытие TLS + QUIC
+Web=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-http=tls_clienthello_www_sferum_ru.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=6
+Media=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+
+[ALT12]
+Description=TLS с шаблоном STUN
+YouTubeDescription=подмена имени + IP ID
+Web=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-tls=stun.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-http=tls_clienthello_www_sferum_ru.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--ip-id=zero --dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=stun.bin --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=3
+Media=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+
+[ALT13]
+Description=TLS с двумя шаблонами
+YouTubeDescription=подмена имени без IP ID
+Web=--dpi-desync=fake,hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=mail.ru,altorder=1 --dpi-desync-repeats=5 --dpi-desync-fake-tls=tls_clienthello_sochi_park.bin --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-http=tls_clienthello_sochi_park.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=5
+Media=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=7 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+
+[EXP]
+Description=перекрытие TLS 480 Б
+YouTubeDescription=подмена имени + QUIC
+Web=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=480 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=4 --dpi-desync-split-seqovl-pattern=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-http=tls_clienthello_www_sferum_ru.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--ip-id=zero --dpi-desync=hostfakesplit --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun,unknown --dpi-desync=fake --dpi-desync-any-protocol=1 --dpi-desync-fake-discord=quic_initial_www_google_com.bin --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-fake-unknown-udp=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=4 --dpi-desync-cutoff=n4
+Media=--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+
+[SIMPLE FAKE ALT2]
+Description=шаблон TLS «Сферум»
+YouTubeDescription=подмена TLS и HTTP
+Web=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin --dpi-desync-fake-http=tls_clienthello_www_sferum_ru.bin
+Quic=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Google=--ip-id=zero --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin
+IpQuic=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin
+Voice=--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=6
+Media=--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin

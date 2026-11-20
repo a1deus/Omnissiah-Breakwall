@@ -9,6 +9,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using Microsoft.Win32.SafeHandles;
@@ -55,13 +56,14 @@ internal sealed class Warp : IDisposable
                  RegexOptions.IgnoreCase)));
     }
 
-    public Task<string> ConnectOfficial()
+    public Task<string> ConnectOfficial(CancellationToken cancellation)
     {
-        return official.Connect(() => OtherVpnActive(true));
+        return official.Connect(() => OtherVpnActive(true), cancellation);
     }
 
-    public async Task<string> Connect()
+    public async Task<string> Connect(CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         if (OtherVpnActive()) return "WARP пропущен: обнаружен другой активный VPN.";
         Directory.CreateDirectory(RuntimeDirectory);
         ClearRuntimeConfigs(RuntimeDirectory);
@@ -69,8 +71,9 @@ internal sealed class Warp : IDisposable
         var runtimeConfig = Path.Combine(RuntimeDirectory, "session-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
-            await PrepareConfig(runtimeConfig);
-            return await ConnectTunnel(runtimeConfig, ReadConfig(File.ReadAllBytes(runtimeConfig)));
+            await PrepareConfig(runtimeConfig, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            return await ConnectTunnel(runtimeConfig, ReadConfig(File.ReadAllBytes(runtimeConfig)), cancellation);
         }
         finally { File.Delete(runtimeConfig); }
     }
@@ -82,7 +85,7 @@ internal sealed class Warp : IDisposable
             File.Delete(leftover);
     }
 
-    private async Task<string> ConnectTunnel(string runtimeConfig, Dictionary<string, string> config)
+    private async Task<string> ConnectTunnel(string runtimeConfig, Dictionary<string, string> config, CancellationToken cancellation)
     {
         var h3 = Address(config, "endpoint_v4", AddressFamily.InterNetwork);
         string h2Value;
@@ -96,11 +99,13 @@ internal sealed class Warp : IDisposable
         {
             foreach (var useHttp2 in new[] { false, true })
             {
+                cancellation.ThrowIfCancellationRequested();
                 if (OtherVpnActive()) return "WARP пропущен: обнаружен другой активный VPN.";
                 StartTunnel(runtimeConfig, useHttp2);
                 var wait = Stopwatch.StartNew();
                 while (!tunnel.HasExited && !connected && wait.Elapsed < TimeSpan.FromSeconds(11))
-                    await Task.Delay(200);
+                    await Task.Delay(200, cancellation);
+                cancellation.ThrowIfCancellationRequested();
                 if (Running)
                 {
                     if (OtherVpnActive())
@@ -108,20 +113,21 @@ internal sealed class Warp : IDisposable
                         await Disconnect();
                         return "WARP пропущен: обнаружен другой активный VPN.";
                     }
-                    await AddRoutes(useHttp2 ? h2 : h3);
+                    await AddRoutes(useHttp2 ? h2 : h3, cancellation);
                     if (!Running) throw new InvalidOperationException("Соединение MASQUE прервалось при настройке маршрутов.");
                     return ConnectedMessage;
                 }
                 await Disconnect();
             }
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception error) { failure = error; }
         await Disconnect();
         if (failure != null) throw new InvalidOperationException(failure.Message, failure);
-        return "WARP не подключился. Фильтр zapret продолжает работать.";
+        return "WARP не подключился.";
     }
 
-    private static async Task PrepareConfig(string runtimeConfig)
+    private static async Task PrepareConfig(string runtimeConfig, CancellationToken cancellation)
     {
         var hasLocalConfig = File.Exists(Config);
         var migrateProtected = !hasLocalConfig && File.Exists(LegacyProtectedConfig);
@@ -137,12 +143,13 @@ internal sealed class Warp : IDisposable
             data = File.ReadAllBytes(LegacyConfig);
         else
         {
-            await Run(Executable, "-c \"" + runtimeConfig + "\" register --accept-tos --name OmnissiahBreakwall", 35000, false);
+            await Run(Executable, "-c \"" + runtimeConfig + "\" register --accept-tos --name OmnissiahBreakwall", 35000, false, cancellation);
             data = File.ReadAllBytes(runtimeConfig);
         }
 
         try
         {
+            cancellation.ThrowIfCancellationRequested();
             ReadConfig(data);
             if (!hasLocalConfig) SaveProtectedConfig(data);
             if (migrateProtected) File.Delete(LegacyProtectedConfig);
@@ -230,7 +237,7 @@ internal sealed class Warp : IDisposable
         }
     }
 
-    private async Task AddRoutes(IPAddress endpoint)
+    private async Task AddRoutes(IPAddress endpoint, CancellationToken cancellation)
     {
         var adapter = NetworkInterface.GetAllNetworkInterfaces().Single(nic => nic.Name == adapterName);
         var properties = adapter.GetIPProperties();
@@ -238,10 +245,13 @@ internal sealed class Warp : IDisposable
         ipv6Index = properties.GetIPv6Properties().Index;
         foreach (var prefix in TunnelPrefixes(endpoint).Concat(new[] { "2000::/3" }))
         {
+            cancellation.ThrowIfCancellationRequested();
             if (!Running) throw new InvalidOperationException("Соединение WARP прервалось.");
+            // Let a route command finish so every installed route can be removed if startup is canceled.
             await Route("add", prefix);
             routes.Add(prefix);
         }
+        cancellation.ThrowIfCancellationRequested();
     }
 
     public async Task Disconnect()
@@ -280,22 +290,39 @@ internal sealed class Warp : IDisposable
         };
     }
 
-    private static async Task Run(string path, string arguments, int timeout, bool includeOutput)
+    private static async Task Run(string path, string arguments, int timeout, bool includeOutput,
+        CancellationToken cancellation = default(CancellationToken))
     {
+        cancellation.ThrowIfCancellationRequested();
         using (var command = Process.Start(Info(path, arguments)))
         {
             var output = command.StandardOutput.ReadToEndAsync();
             var errors = command.StandardError.ReadToEndAsync();
-            if (!await Task.Run(() => command.WaitForExit(timeout)))
-            {
-                if (!command.HasExited) command.Kill();
-                throw new TimeoutException("Компонент WARP не ответил вовремя.");
-            }
+            await WaitForCommand(command, timeout, cancellation, "Компонент WARP не ответил вовремя.");
             var result = (await output) + (await errors);
+            cancellation.ThrowIfCancellationRequested();
             if (command.ExitCode != 0)
                 throw new InvalidOperationException(includeOutput ? result.Trim() :
                     "Не удалось зарегистрировать устройство WARP. Код " + command.ExitCode + ".");
         }
+    }
+
+    internal static async Task WaitForCommand(Process process, int timeout, CancellationToken cancellation, string timeoutMessage)
+    {
+        try
+        {
+            if (await Task.Run(() => Engine.WaitForExit(process, timeout, cancellation))) return;
+        }
+        catch (OperationCanceledException) { }
+        await Task.Run(() =>
+        {
+            try { if (!process.HasExited) process.Kill(); }
+            catch (InvalidOperationException) { if (!process.HasExited) throw; }
+            if (!process.WaitForExit(2000))
+                throw new InvalidOperationException("Не удалось остановить команду WARP.");
+        });
+        cancellation.ThrowIfCancellationRequested();
+        throw new TimeoutException(timeoutMessage);
     }
 
     public void Dispose()
@@ -318,7 +345,7 @@ internal sealed class Warp : IDisposable
 internal sealed class OfficialWarp
 {
     private readonly string executable;
-    private readonly Func<string, Task<string>> command;
+    private readonly Func<string, CancellationToken, Task<string>> command;
 
     public OfficialWarp()
     {
@@ -328,41 +355,44 @@ internal sealed class OfficialWarp
         command = Run;
     }
 
-    internal OfficialWarp(Func<string, Task<string>> command) { this.command = command; }
+    internal OfficialWarp(Func<string, CancellationToken, Task<string>> command) { this.command = command; }
 
     public bool Installed { get { return executable != null && File.Exists(executable); } }
     public bool OwnsConnection { get; private set; }
 
-    public async Task<string> Connect(Func<bool> otherVpnActive)
+    public async Task<string> Connect(Func<bool> otherVpnActive, CancellationToken cancellation)
     {
-        var status = await Status();
+        var status = await Status(cancellation);
         if (status != "Connected" && otherVpnActive()) return "WARP пропущен: обнаружен другой активный VPN.";
         if (status != "Disconnected" && status != "Connected")
             return "Cloudflare WARP занят. Дождитесь завершения подключения.";
 
-        var settings = await command("settings list");
+        var settings = await command("settings list", cancellation);
         if (!Regex.IsMatch(settings, @"(?im)\bMode:\s*(Warp|WarpWithDnsOverHttps)\s*$"))
             return "В клиенте Cloudflare выберите режим WARP.";
         if (status == "Connected") return Warp.ConnectedMessage;
         if (otherVpnActive()) return "WARP пропущен: обнаружен другой активный VPN.";
 
-        status = await Status();
+        status = await Status(cancellation);
         if (status == "Connected") return Warp.ConnectedMessage;
         if (status != "Disconnected") return "Cloudflare WARP уже подключается.";
 
-        await command("connect");
+        cancellation.ThrowIfCancellationRequested();
+        // The service may begin connecting before warp-cli returns.
         OwnsConnection = true;
         Exception failure = null;
         try
         {
+            await command("connect", cancellation);
             var wait = Stopwatch.StartNew();
             while (wait.Elapsed < TimeSpan.FromSeconds(18))
             {
                 if (otherVpnActive()) break;
-                if (await Status() == "Connected") return Warp.ConnectedMessage;
-                await Task.Delay(500);
+                if (await Status(cancellation) == "Connected") return Warp.ConnectedMessage;
+                await Task.Delay(500, cancellation);
             }
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception error) { failure = error; }
         await Disconnect();
         if (failure != null) throw new InvalidOperationException(failure.Message, failure);
@@ -373,13 +403,14 @@ internal sealed class OfficialWarp
     public async Task Disconnect()
     {
         if (!OwnsConnection) return;
-        await command("disconnect");
+        await command("disconnect", CancellationToken.None);
         OwnsConnection = false;
     }
 
-    private async Task<string> Status()
+    private async Task<string> Status(CancellationToken cancellation)
     {
-        var output = await command("--json status");
+        var output = await command("--json status", cancellation);
+        cancellation.ThrowIfCancellationRequested();
         var json = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(output);
         object status;
         if (json == null || !json.TryGetValue("status", out status) || !(status is string))
@@ -387,8 +418,9 @@ internal sealed class OfficialWarp
         return (string)status;
     }
 
-    private async Task<string> Run(string arguments)
+    private async Task<string> Run(string arguments, CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         var info = new ProcessStartInfo(executable, "--no-ansi --no-paginate " + arguments) {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true
@@ -397,14 +429,10 @@ internal sealed class OfficialWarp
         {
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
-            if (!await Task.Run(() => process.WaitForExit(5000)))
-            {
-                try { process.Kill(); }
-                catch (InvalidOperationException) { }
-                throw new TimeoutException("Официальный клиент Cloudflare WARP не ответил.");
-            }
+            await Warp.WaitForCommand(process, 5000, cancellation, "Официальный клиент Cloudflare WARP не ответил.");
             var output = (await stdout).Trim();
             var error = (await stderr).Trim();
+            cancellation.ThrowIfCancellationRequested();
             if (process.ExitCode != 0)
                 throw new InvalidOperationException("Cloudflare WARP: " + (error.Length > 0 ? error : output));
             return output;
