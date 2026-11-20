@@ -16,7 +16,11 @@ internal enum Strategy
     ActiveGameSix, ActiveGameEight, ActiveGameFour, None
 }
 internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None, LegacyAlternateTls }
-internal enum WarpStrategy { Standard, QuicBurst, MasqueTls, None }
+internal enum WarpStrategy
+{
+    Standard, QuicBurst, MasqueTls, None,
+    Circular, CircularStun, DoubleFakeSequence, DoubleFakeSteam, DoubleFakeTimestamp
+}
 
 internal sealed class Engine : IDisposable
 {
@@ -45,12 +49,13 @@ internal sealed class Engine : IDisposable
     private static readonly string DirectoryPath = Path.Combine(Root, "engine");
     private static readonly string RuntimeRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Omnissiah Breakwall", "engine");
-    private static readonly string[] RuntimeFiles = { "winws.exe", "cygwin1.dll", "WinDivert.dll", "WinDivert64.sys" };
+    private static readonly string Zapret2Directory = Path.Combine(DirectoryPath, "zapret2");
+    private const string LegacyExecutable = "winws.exe";
     private readonly Queue<string> output = new Queue<string>();
-    private Process process;
+    private readonly List<Process> processes = new List<Process>();
     private SafeFileHandle job;
 
-    public bool Running { get { return process != null && !process.HasExited; } }
+    public bool Running { get { return processes.Count != 0 && processes.All(process => !process.HasExited); } }
 
     public string Details
     {
@@ -63,7 +68,9 @@ internal sealed class Engine : IDisposable
     {
         cancellation.ThrowIfCancellationRequested();
         var arguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
-        if (arguments.Length == 0) return false;
+        var zapret2 = WarpZapret2.IsSelected(warp.BuiltIn)
+            ? WarpZapret2.Arguments(Path.Combine(Root, "profiles"), warp.BuiltIn) : null;
+        if (arguments.Length == 0 && zapret2 == null) return false;
 
         foreach (var name in new[] { "winws", "winws2" })
         {
@@ -74,15 +81,35 @@ internal sealed class Engine : IDisposable
         }
 
         lock (output) output.Clear();
-        var child = new Process { StartInfo = Info(arguments) };
+        try
+        {
+            cancellation.ThrowIfCancellationRequested();
+            job = CreateKillJob();
+            if (arguments.Length != 0) StartProcess(Info(LegacyExecutable, arguments), cancellation);
+            if (zapret2 != null)
+            {
+                StartProcess(Info(WarpZapret2.Executable, zapret2), cancellation);
+                if (!Running) throw new InvalidOperationException("Сетевой фильтр завершился при запуске WARP.");
+            }
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+        return true;
+    }
+
+    private void StartProcess(ProcessStartInfo info, CancellationToken cancellation)
+    {
+        var child = new Process { StartInfo = info };
         child.OutputDataReceived += Receive;
         child.ErrorDataReceived += Receive;
         try
         {
             cancellation.ThrowIfCancellationRequested();
-            job = CreateKillJob();
             child.Start();
-            process = child;
+            processes.Add(child);
             if (!AssignProcessToJobObject(job, child.Handle))
                 throw new System.ComponentModel.Win32Exception();
             child.BeginOutputReadLine();
@@ -90,16 +117,15 @@ internal sealed class Engine : IDisposable
             if (WaitForExit(child, 900, cancellation))
             {
                 child.WaitForExit();
-                throw new InvalidOperationException("winws завершился при запуске. Код " + child.ExitCode + ".");
+                throw new InvalidOperationException(Path.GetFileName(info.FileName) +
+                    " завершился при запуске. Код " + child.ExitCode + ".");
             }
         }
         catch
         {
-            if (process == null) child.Dispose();
-            Dispose();
+            if (!processes.Contains(child)) child.Dispose();
             throw;
         }
-        return true;
     }
 
     internal static bool WaitForExit(Process process, int timeout, CancellationToken cancellation)
@@ -125,7 +151,7 @@ internal sealed class Engine : IDisposable
             new StrategySelection<ServiceStrategy>(discord), new StrategySelection<ServiceStrategy>(youtube),
             new StrategySelection<Strategy>(spaceMarine));
         if (arguments.Length == 0) return 0;
-        using (var child = new Process { StartInfo = Info("--dry-run " + arguments) })
+        using (var child = new Process { StartInfo = Info(LegacyExecutable, "--dry-run " + arguments) })
         {
             child.OutputDataReceived += (sender, args) => { if (args.Data != null) Console.WriteLine(args.Data); };
             child.ErrorDataReceived += (sender, args) => { if (args.Data != null) Console.Error.WriteLine(args.Data); };
@@ -142,34 +168,39 @@ internal sealed class Engine : IDisposable
         }
     }
 
-    private static ProcessStartInfo Info(string arguments)
+    private static ProcessStartInfo Info(string executable, string arguments)
     {
-        var runtime = PrepareRuntime(DirectoryPath, RuntimeRoot);
-        return new ProcessStartInfo(Path.Combine(runtime, "winws.exe"), arguments) {
-            WorkingDirectory = DirectoryPath, UseShellExecute = false, CreateNoWindow = true,
+        var bundle = executable == WarpZapret2.Executable ? Zapret2Directory : DirectoryPath;
+        var sources = new[] {
+            Path.Combine(bundle, executable), Path.Combine(DirectoryPath, "cygwin1.dll"),
+            Path.Combine(bundle, "WinDivert.dll"), Path.Combine(DirectoryPath, "WinDivert64.sys")
+        };
+        var runtime = PrepareRuntime(sources);
+        return new ProcessStartInfo(Path.Combine(runtime, executable), arguments) {
+            WorkingDirectory = bundle, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true
         };
     }
 
-    private static string PrepareRuntime(string bundle, string runtimeRoot)
+    private static string PrepareRuntime(string[] sources)
     {
         using (var sha = SHA256.Create())
         {
-            var hashes = RuntimeFiles.ToDictionary(file => file, file => FileHash(sha, Path.Combine(bundle, file)));
-            var manifest = Encoding.ASCII.GetBytes(string.Concat(RuntimeFiles.Select(file => hashes[file])));
-            var directory = Path.Combine(runtimeRoot, BitConverter.ToString(sha.ComputeHash(manifest)).Replace("-", ""));
+            var hashes = sources.ToDictionary(source => source, source => FileHash(sha, source));
+            var manifest = Encoding.ASCII.GetBytes(string.Concat(sources.Select(source => hashes[source])));
+            var directory = Path.Combine(RuntimeRoot, BitConverter.ToString(sha.ComputeHash(manifest)).Replace("-", ""));
             Directory.CreateDirectory(directory);
-            foreach (var file in RuntimeFiles)
+            foreach (var source in sources)
             {
-                var target = Path.Combine(directory, file);
-                if (File.Exists(target) && FileHash(sha, target) == hashes[file]) continue;
+                var target = Path.Combine(directory, Path.GetFileName(source));
+                if (File.Exists(target) && FileHash(sha, target) == hashes[source]) continue;
 
                 var temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 try
                 {
-                    File.Copy(Path.Combine(bundle, file), temporary);
-                    if (FileHash(sha, temporary) != hashes[file])
-                        throw new IOException("Файл сетевого фильтра изменился при копировании: " + file);
+                    File.Copy(source, temporary);
+                    if (FileHash(sha, temporary) != hashes[source])
+                        throw new IOException("Файл сетевого фильтра изменился при копировании: " + Path.GetFileName(source));
                     if (File.Exists(target)) File.Replace(temporary, target, null);
                     else File.Move(temporary, target);
                 }
@@ -206,6 +237,7 @@ internal sealed class Engine : IDisposable
         var useDiscordAlternateTls = discord == ServiceStrategy.LegacyAlternateTls;
         var youtubeEnabled = youtubeDs != null || youtube != ServiceStrategy.None;
         var warpEnabled = warp != WarpStrategy.None;
+        var warpZapret2 = WarpZapret2.IsSelected(warp);
 
         if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
         if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warpEnabled)
@@ -260,8 +292,9 @@ internal sealed class Engine : IDisposable
         {
             if (warp == WarpStrategy.MasqueTls)
                 rules.Add("--filter-tcp=443 --filter-l7=tls --ipset=../profiles/warp-masque.txt " + TimestampFake);
-            rules.Add(ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", Standard)
-                .Replace("{masque-quic-repeats}", warp == WarpStrategy.QuicBurst ? "11" : "6"));
+            var warpRules = ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", Standard)
+                .Replace("{masque-quic-repeats}", warp == WarpStrategy.QuicBurst ? "11" : "6");
+            rules.Add(warpZapret2 ? WarpZapret2.LegacyFallback(warpRules) : warpRules);
         }
         if (youtubeDs != null)
             AddDsYouTubeRules(rules, youtubeDs);
@@ -280,8 +313,9 @@ internal sealed class Engine : IDisposable
         }
 
         if (rules.Count == 0) return "";
+        var profilesArgument = string.Join(" --new ", rules);
         return "--wf-tcp=" + string.Join(",", tcp) + " --wf-udp=" + string.Join(",", udp) +
-            " " + string.Join(" --new ", rules);
+            " " + (warpZapret2 ? WarpZapret2.ExcludeEndpoints(profilesArgument) : profilesArgument);
     }
 
     private static void AddDsWebRules(List<string> rules, string hosts, DsStrategy profile)
@@ -385,7 +419,7 @@ internal sealed class Engine : IDisposable
             .Replace("{quic-repeats}", quicRepeats);
     }
 
-    private static string ReadProfile(string path)
+    internal static string ReadProfile(string path)
     {
         return string.Join(" ", File.ReadAllLines(path).Select(line => line.Trim())
             .Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal)));
@@ -408,21 +442,22 @@ internal sealed class Engine : IDisposable
             job.Dispose();
             job = null;
         }
-        if (process == null) return;
-        try
+        Exception failure = null;
+        foreach (var process in processes)
         {
-            if (!process.WaitForExit(300))
+            try
             {
+                if (process.WaitForExit(300)) continue;
                 try { process.Kill(); }
                 catch (InvalidOperationException) { if (!process.HasExited) throw; }
-                process.WaitForExit(2000);
+                if (!process.WaitForExit(2000))
+                    throw new InvalidOperationException("Не удалось остановить процесс сетевого фильтра.");
             }
+            catch (Exception error) { if (failure == null) failure = error; }
+            finally { process.Dispose(); }
         }
-        finally
-        {
-            process.Dispose();
-            process = null;
-        }
+        processes.Clear();
+        if (failure != null) throw new InvalidOperationException(failure.Message, failure);
     }
 
     internal static SafeFileHandle CreateKillJob()

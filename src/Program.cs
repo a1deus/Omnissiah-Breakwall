@@ -252,7 +252,7 @@ internal sealed class MainWindow : Form
                 }
                 return;
             }
-            diagnostics = "Процесс winws завершился.";
+            diagnostics = "Процесс сетевого фильтра завершился.";
             await StopSession();
             if (!warp.OwnsConnection)
                 message.Text = "Фильтр остановился. Откройте подробности.";
@@ -318,6 +318,11 @@ internal sealed class MainWindow : Form
         warpStrategy.Add(WarpStrategy.Standard, "W01 - WARP · основной");
         warpStrategy.Add(WarpStrategy.QuicBurst, "W02 - WARP · усиленный QUIC");
         warpStrategy.Add(WarpStrategy.MasqueTls, "W03 - WARP · подмена TLS MASQUE");
+        warpStrategy.AddNumbered("W", "WARP", WarpStrategy.Circular, "смена TLS-схемы");
+        warpStrategy.AddNumbered("W", "WARP", WarpStrategy.CircularStun, "смена TLS-схемы и STUN");
+        warpStrategy.AddNumbered("W", "WARP", WarpStrategy.DoubleFakeSequence, "двойной шаблон и TCP Seq/ACK");
+        warpStrategy.AddNumbered("W", "WARP", WarpStrategy.DoubleFakeSteam, "двойной шаблон Steam Chat");
+        warpStrategy.AddNumbered("W", "WARP", WarpStrategy.DoubleFakeTimestamp, "двойной шаблон с метками времени");
         warpStrategy.Restore(WarpStrategy.Standard.ToString());
         AddStrategyGroup("Сервисы", 231, discordStrategy, youtubeStrategy, warpStrategy);
 
@@ -612,7 +617,8 @@ internal sealed class MainWindow : Form
             "Приложение запоминает ваш выбор.");
         AddInstructionSection(sections, "Cloudflare WARP",
             "Выберите стратегию WARP в разделе «Сервисы» и отметьте «Подключить WARP» на главном экране. " +
-            "Начните с W01. Если подключение не удаётся, остановите фильтр и попробуйте W02 для QUIC или W03 для TLS MASQUE. " +
+            "Начните с W01. Если подключение не удаётся, попробуйте W02 для QUIC, W03 для TLS MASQUE или W04–W08 на базе zapret2. " +
+            "W04–W08 меняют обработку TLS и QUIC для MASQUE и API Cloudflare. " +
             "С вариантом «WARP · Выключено» галочка запускает туннель без правил WARP. " +
             "При первой регистрации встроенного клиента подтвердите условия Cloudflare.");
         AddInstructionSection(sections, "Работа в фоне",

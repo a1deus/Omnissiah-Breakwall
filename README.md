@@ -1,4 +1,4 @@
-# Omnissiah Breakwall 1.4.0
+# Omnissiah Breakwall 1.4.1
 
 Переносимый лаунчер для Windows 10/11 x64 с профилями zapret для Warhammer 40,000: Darktide, Space Marine 2, Discord и YouTube и автоматическим выбором клиента Cloudflare WARP. Пошаговый запуск описан в [Инструкция.txt](./Инструкция.txt).
 
@@ -24,7 +24,7 @@
 
 Во время подключения кольцо светится светло-серым. Нажмите **Подождите** ещё раз, чтобы отменить подключение. Пока фильтр или запущенный лаунчером WARP работает, кнопка **Настройка стратегий** и галочка **Подключить WARP** заблокированы.
 
-Диапазоны кодов — **DT01–DT15**, **SM01–SM15**, **DS01–DS11**, **YT01–YT10** и **W01–W03**. [Соответствие кодов и исходных рецептов](Для%20ИИ/Описание%20проекта.md#соответствие-стратегий).
+Диапазоны кодов — **DT01–DT15**, **SM01–SM15**, **DS01–DS11**, **YT01–YT10** и **W01–W08**.
 
 При первом запуске Darktide, Discord, YouTube и WARP используют основные стратегии, а правила Space Marine 2 выключены. Галочка **Подключить WARP** управляет подключением и применением выбранной стратегии WARP. Программа сохраняет выбор в `%LOCALAPPDATA%\Omnissiah Breakwall\strategies.txt`. Сохранённые варианты игр из 1.3.0 и ранней 1.4.0 сопоставляются с оставшимися схемами UDP. Для удалённых вариантов сервисов без соответствия используется основной профиль. Пункт **Выключено** сохраняется.
 
@@ -57,7 +57,7 @@
 
 При включении фильтра лаунчер готовит рабочую копию winws и WinDivert в `%LOCALAPPDATA%\Omnissiah Breakwall\engine`. Эта копия используется для запуска, а правила читаются из папки программы. Если Windows ещё удерживает `WinDivert64.sys`, загруженный прежней сборкой из папки программы, перезагрузите Windows перед ручной заменой этого файла или повтором обновления.
 
-Для публикации используйте стабильный тег вида `v1.4.0` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.4.0-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.4.0`. Скрипт запишет `1.4.0.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+Для публикации используйте стабильный тег вида `v1.4.1` и один готовый архив для Windows x64, например `Omnissiah-Breakwall-v1.4.1-win-x64.zip`, в **Assets**. Перед упаковкой соберите EXE командой `.\src\build.ps1 -Version 1.4.1`. Скрипт запишет `1.4.1.0` в метаданные Windows. Контрольная сумма архива берётся из метаданных GitHub. [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 ## Cloudflare WARP
 
@@ -65,6 +65,16 @@
 Встроенный WARP использует существующую регистрацию Omnissiah Darktide. Путь к локальным данным сохранён для совместимости.
 
 В разделе **Настройка стратегий → Сервисы** выберите вариант WARP. Основная стратегия имеет код **W01**. Вернитесь на главный экран, отметьте **Подключить WARP** и нажмите **Включить**. Лаунчер применит выбранные правила и автоматически выберет клиент WARP. Результат подключения отображается под галочкой. Если подключение не удалось, остановите фильтр и попробуйте **W02** с дополнительными повторами QUIC для MASQUE или **W03** с альтернативной обработкой TLS на IP-адресах MASQUE. С вариантом **WARP · Выключено** галочка подключает туннель без правил zapret для WARP.
+
+Варианты **W04–W08** используют Lua-рецепты zapret2. Обработка включается для известных IP-адресов MASQUE и API Cloudflare. Для QUIC на адресах MASQUE используются также запасные UDP-порты из профиля Breakwall. При выборе этих вариантов приложение запускает `winws2` вместе с обычным `winws`. Штатные правила WireGuard и доменный профиль для других адресов WARP остаются в `winws`.
+
+| Код | Исходный BAT | Короткое описание |
+| --- | --- | --- |
+| W04 | `general (CIRCULAR).bat` | Переключение TLS-рецептов после неудачных попыток. |
+| W05 | `general (CIRCULAR1).bat` | Переключение TLS-рецептов с вариантом на основе STUN и изменением TCP Seq/ACK. |
+| W06 | `general (DOUBLE FAKE ALT).bat` | Два шаблона, изменение TCP Seq/ACK и меток времени. |
+| W07 | `general (DOUBLE FAKE ALT2).bat` | Два шаблона, включая Steam Chat, и изменение TCP Seq/ACK. |
+| W08 | `general (DOUBLE FAKE).bat` | Два шаблона с изменением меток времени TCP. |
 
 - Если установлен официальный клиент Cloudflare в стандартном каталоге Program Files, лаунчер использует уже активное подключение или запрашивает новое. Ошибка клиента доступна в «Подробностях».
 - При отсутствии официального клиента запускается встроенный WARP. Для регистрации и подключения нужен интернет. При первой регистрации подтвердите условия Cloudflare. Туннель пробует MASQUE по QUIC, затем по TCP, и пропускает игровой UDP. Встроенный клиент использует [usque 4.2.1](https://github.com/Diniboy1123/usque/releases/tag/v4.2.1) и [Wintun 0.14.1](https://www.wintun.net/).
@@ -83,13 +93,14 @@
 - `profiles/darktide.txt` содержит доменные зоны игровых сервисов Atoma, официальные сайты Fatshark и адрес Vivox из журналов игры. Поддомены учитываются автоматически. Профиль обрабатывает HTTP, TLS и QUIC к этим доменам.
 - `profiles/base.args` содержит общие доменные правила Darktide и Discord. Лаунчер подставляет доменные списки включённых групп. Отдельное правило начала сессии Darktide формируется для UDP `35500–35650` и `35670` в `src/Engine.cs`. Если провайдер блокирует сам IP или весь UDP-маршрут, может понадобиться WARP. [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3759171917)
 - `profiles/discord.txt` охватывает домены Discord из Flowseal, включая клиент, CDN и вложения, а также Klipy для GIF. Из v2fly добавлены `discord.tools` и точный адрес поддержки `hammerandchisel.ssl.zendesk.com`. Голосовой UDP обрабатывается по диапазонам портов и сигнатурам Discord/STUN из Flowseal. [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/2401b7a13837139b0265632464ba563dddbf80d8/lists/list-general.txt) · [v2fly](https://github.com/v2fly/domain-list-community/blob/777d056afe68b2643c1ef15f80e7bde3dfa149b1/data/discord)
-- `profiles/warp.txt` содержит домены служб клиента, Cloudflare Access, Gateway, DNS 1.1.1.1 и сайта WARP. `profiles/warp-api.txt` содержит точные адреса API регистрации для TLS. Списки `warp-masque.txt` и `warp-wireguard.txt` задают подсети для туннеля. Варианты W02 и W03 меняют только соответствующее правило MASQUE. Во всех трёх вариантах используется общее правило WireGuard. [Cloudflare](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/) · [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/main/lists/list-general.txt) · [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3695068003)
+- `profiles/warp.txt` содержит домены служб клиента, Cloudflare Access, Gateway, DNS 1.1.1.1 и сайта WARP. `profiles/warp-api.txt` содержит точные адреса API регистрации для TLS. Списки `warp-masque.txt` и `warp-wireguard.txt` задают подсети для туннеля. Варианты W02 и W03 меняют только соответствующее правило MASQUE. Во всех вариантах используется общее правило WireGuard. [Cloudflare](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/) · [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/blob/main/lists/list-general.txt) · [Руководство Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3695068003)
 
 ## Компоненты и исходники
 
 Лаунчер написан на C# и Windows Forms. `src/build.ps1` собирает EXE штатным компилятором .NET Framework в Windows x64. Фильтр — winws v72.9 с WinDivert и Cygwin из [релиза Flowseal 1.10.4](https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.10.4). SHA-256 использованного архива `291af673bd0238506f9548e0e94ca0abf244000f4c9a06960544fb01c5f97b34`.
 
 - [Исходники winws](https://github.com/bol-van/zapret/tree/c849e55ef0f1c244206f5a05ff7b1ab41a3824ee)
+- [Исходники winws2](https://github.com/bol-van/zapret2/tree/038c97e5819df10f8e8c22a2f1fffe57f2f7379b) · [Лицензия zapret2](./licenses/zapret2-LICENSE.txt)
 - [Исходники и лицензия WinDivert](https://github.com/basil00/WinDivert/tree/v2.2.2)
 - [Исходники и лицензирование Cygwin](https://cygwin.com/licensing.html)
 - [Информация Fatshark о блокировках](https://support.fatshark.se/hc/en-us/articles/28867379991069-Playing-From-Russia-and-Experiencing-Errors-on-Loading-in-to-the-Mourningstar)

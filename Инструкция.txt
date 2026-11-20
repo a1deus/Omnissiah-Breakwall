@@ -1,4 +1,4 @@
-OMNISSIAH BREAKWALL 1.4.0
+OMNISSIAH BREAKWALL 1.4.1
 
 Помогает открыть Darktide, Space Marine 2, Discord и YouTube, если они не работают.
 
@@ -42,7 +42,9 @@ CLOUDFLARE WARP
 условия Cloudflare.
 
 Если WARP не подключается, остановите фильтр и попробуйте W02 для QUIC
-или W03 для TLS MASQUE. С вариантом «WARP · Выключено» галочка
+или W03 для TLS MASQUE. Варианты W04–W08 используют рецепты zapret2
+для MASQUE и API Cloudflare. W04–W05 переключают TLS-схемы, а W06–W08
+используют два шаблона. С вариантом «WARP · Выключено» галочка
 подключает туннель без правил zapret для WARP.
 
 Если уже запущена другая программа zapret, закройте её перед запуском.

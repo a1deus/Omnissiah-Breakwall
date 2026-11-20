@@ -1,0 +1,47 @@
+# Source: general (CIRCULAR1).bat. WARP endpoints replace the general service lists.
+--name=warp-domain-quic --filter-udp=443 --filter-l7=quic --hostlist="{profiles}/warp.txt"
+--payload=quic_initial
+--lua-desync=fake:blob=quic_rutube:repeats=6
+--new
+--name=warp-domain-tls --filter-tcp=80,443 --hostlist="{profiles}/warp.txt"
+--in-range=-s34228
+--out-range=-s34228
+--payload=all
+--lua-desync=circular:key=gen:nld=2:fails=2:time=120:retrans=2:reset
+--payload=tls_client_hello
+--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_google:sni_del:sni_first=www.google.com:sni_snt_new=0:strategy=1
+--lua-desync=fake:blob=ch_clone:repeats=6:tcp_ts=-600000:ip_id=zero:strategy=1
+--lua-desync=fake:blob=tls_google:tls_mod=rnd,padencap:repeats=4:badsum:ip_id=zero:strategy=1
+--lua-desync=multisplit:pos=sniext+1,midsld:seqovl=1:ip_id=zero:strategy=1
+--lua-desync=fake:blob=stun:repeats=6:tcp_seq=2:tcp_ack=-66000:tcp_ts_up:tcp_ts=-600000:strategy=2
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=2:tcp_ack=-66000:tcp_ts_up:tcp_ts=-600000:strategy=2
+--lua-desync=multisplit:pos=2:strategy=2
+--payload=http_req
+--lua-desync=fake:blob=tls_sferum:repeats=8:tcp_ts=-600000:strategy=1
+--lua-desync=http_domcase:strategy=1
+--lua-desync=http_hostcase:spell=hoSt:strategy=1
+--lua-desync=multisplit:pos=method+2,host+1:strategy=1
+--lua-desync=fake:blob=tls_sferum:repeats=8:tcp_ts=-600000:strategy=2
+--lua-desync=multisplit:pos=2:seqovl=661:seqovl_pattern=tls_sferum:strategy=2
+--new
+--name=warp-masque-quic --filter-udp=443,500,1701,4500,4443,8443,8095 --filter-l7=quic --ipset="{profiles}/warp-masque.txt"
+--payload=quic_initial
+--lua-desync=fake:blob=quic_rutube:repeats=6
+--new
+--name=warp-api-masque-tls --filter-tcp=80,443,8443 --ipset="{profiles}/warp-masque.txt" --ipset="{profiles}/warp-api.txt"
+--in-range=-s34228
+--out-range=-s34228
+--payload=all
+--lua-desync=circular:key=ip:nld=2:fails=2:time=120:retrans=2:reset
+--payload=tls_client_hello
+--lua-desync=fake:blob=stun:repeats=6:tcp_seq=2:tcp_ack=-66000:tcp_ts_up:tcp_ts=-600000:strategy=1
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=2:tcp_ack=-66000:tcp_ts_up:tcp_ts=-600000:strategy=1
+--lua-desync=multisplit:pos=2:strategy=1
+--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_steamchat:sni_del:sni_first=winelab.ru:sni_snt_new=0:strategy=2
+--lua-desync=fake:blob=ch_clone:repeats=6:tcp_ts=-600000:strategy=2
+--lua-desync=fake:blob=tls_steamchat:tls_mod=rnd,padencap:repeats=4:badsum:strategy=2
+--lua-desync=multidisorder:pos=sniext+1,midsld:seqovl=1:strategy=2
+--payload=http_req
+--lua-desync=fake:blob=tls_sferum:repeats=6:tcp_ts=-600000:strategy=1
+--lua-desync=multisplit:pos=2:strategy=1
+--lua-desync=hostfakesplit:host=rutube.ru:repeats=4:tcp_ts=-600000:strategy=2
