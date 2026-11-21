@@ -301,6 +301,8 @@ internal sealed class MainWindow : Form
         discordStrategy.AddImportedStrategy("DS", "Discord", "ALT13");
         discordStrategy.AddImportedStrategy("DS", "Discord", "EXP");
         discordStrategy.AddNumbered("DS", "Discord", ServiceStrategy.LegacyAlternateTls, "альтернативный TLS 1.3.0");
+        discordStrategy.AddNumbered("DS", "Discord", ServiceStrategy.Zapret2DiscordExp, "копия ClientHello");
+        discordStrategy.AddNumbered("DS", "Discord", ServiceStrategy.Zapret2DiscordCircular, "смена TLS-схемы");
         discordStrategy.Restore(ServiceStrategy.Standard.ToString());
 
         youtubeStrategy.Add(ServiceStrategy.Standard, "YT01 - YouTube · основной");
@@ -313,6 +315,8 @@ internal sealed class MainWindow : Form
         youtubeStrategy.AddImportedStrategy("YT", "YouTube", "ALT11", true);
         youtubeStrategy.AddImportedStrategy("YT", "YouTube", "ALT12", true, "DS:EXP");
         youtubeStrategy.AddImportedStrategy("YT", "YouTube", "SIMPLE FAKE ALT2", true, "DS:ALT10");
+        youtubeStrategy.AddNumbered("YT", "YouTube", ServiceStrategy.Zapret2YoutubeCircular, "смена TLS-схемы");
+        youtubeStrategy.AddNumbered("YT", "YouTube", ServiceStrategy.Zapret2YoutubeExp, "перестановка частей TLS");
         youtubeStrategy.Restore(ServiceStrategy.Standard.ToString());
 
         warpStrategy.Add(WarpStrategy.Standard, "W01 - WARP · основной");
@@ -370,6 +374,9 @@ internal sealed class MainWindow : Form
         picker.AddNumbered(prefix, game, Strategy.ActiveGameSix, "UDP · 6 повторов");
         picker.AddNumbered(prefix, game, Strategy.ActiveGameEight, "UDP · 8 повторов");
         picker.AddNumbered(prefix, game, Strategy.ActiveGameFour, "UDP · 4 повтора");
+        picker.AddNumbered(prefix, game, Strategy.Zapret2Circular, "UDP · 8 повторов, 3 пакета");
+        picker.AddNumbered(prefix, game, Strategy.Zapret2Exp, "UDP · два шаблона");
+        picker.AddNumbered(prefix, game, Strategy.Zapret2DoubleFake, "UDP · 12 повторов, 3 пакета");
     }
 
     private void ConfigureNavigation()
@@ -609,8 +616,9 @@ internal sealed class MainWindow : Form
             "На главном экране откройте «Настройка стратегий». В разделах «Игры» и «Сервисы» " +
             "выберите нужные варианты. У каждой стратегии есть код и короткое описание. " +
             "Игровые варианты DT и SM различаются обработкой UDP. Начните с DT01 или SM01. " +
-            "Для сравнения попробуйте варианты 13–15 с другим числом повторов. " +
-            "Для прежнего альтернативного TLS, включая CDN изображений Discord, выберите DS11 в разделе «Сервисы». " +
+            "Варианты 16–18 используют zapret2 для игрового UDP и запускаются независимо от галочки WARP. " +
+            "Сравните вариант 16 с 14, чтобы проверить один рецепт в двух движках. " +
+            "Для TLS Discord и CDN изображений доступны DS11–DS13. Новые варианты YouTube для TLS — YT11 и YT12. " +
             "«Выключено» отключает правила для выбранной игры или сервиса. " +
             "Вернитесь на главный экран и нажмите «Включить». Во время подключения повторное нажатие на «Подождите» отменяет его. " +
             "Для смены стратегии или галочки WARP сначала остановите фильтр. " +

@@ -1,0 +1,4 @@
+# Source: general (DOUBLE FAKE).bat, gamefilterudp.
+--out-range=-n3
+--payload=all
+--lua-desync=fake:blob=active_game:repeats=12:payload=all

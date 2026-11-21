@@ -13,9 +13,14 @@ internal enum Strategy
 {
     Standard, Alternate, FlowAlt2, FlowAlt3, FlowExp, FlowSimpleAlt2, Combined, FlowAlt12, CommunityAlt10,
     ActiveGameShortTen, ActiveGameMediumFourteen, ActiveGameMediumTen,
-    ActiveGameSix, ActiveGameEight, ActiveGameFour, None
+    ActiveGameSix, ActiveGameEight, ActiveGameFour, None,
+    Zapret2Circular, Zapret2Exp, Zapret2DoubleFake
 }
-internal enum ServiceStrategy { Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None, LegacyAlternateTls }
+internal enum ServiceStrategy
+{
+    Standard, BadSequence, TimestampFake, HostSplit, TimestampOverlap, SimpleFake, SniSplit, None, LegacyAlternateTls,
+    Zapret2DiscordExp, Zapret2DiscordCircular, Zapret2YoutubeCircular, Zapret2YoutubeExp
+}
 internal enum WarpStrategy
 {
     Standard, QuicBurst, MasqueTls, None,
@@ -35,15 +40,18 @@ internal sealed class Engine : IDisposable
     private const string DiscordSimpleFake = "--dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fake-tls=stun2.bin --dpi-desync-fake-tls=tls_clienthello_www_sferum_ru.bin";
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
-    private const string DarktideUdpPorts = "35500-35650,35670";
+    internal const string DarktideUdpPorts = "35500-35650,35670";
     private const string SpaceMarineTcpPorts = "11700-11720";
-    private const string SpaceMarineUdpPorts = "48800-55000";
+    internal const string SpaceMarineUdpPorts = "48800-55000";
     private const string SpaceMarineHosts = "--hostlist=../profiles/space-marine-2.txt";
-    private const string SpaceMarineSharedNetworks = "--ipset=../profiles/space-marine-2-ip.txt";
+    internal const string SpaceMarineSharedIps = "space-marine-2-ip.txt";
+    internal const string SpaceMarineUdpIps = "space-marine-2-udp-ip.txt";
+    private const string SpaceMarineSharedNetworks = "--ipset=../profiles/" + SpaceMarineSharedIps;
     private const string SpaceMarineTcpNetworks = SpaceMarineSharedNetworks + " --ipset=../profiles/space-marine-2-tcp-ip.txt";
-    private const string SpaceMarineUdpNetworks = SpaceMarineSharedNetworks + " --ipset=../profiles/space-marine-2-udp-ip.txt";
-    private const string DiscordVoicePorts = "19294-19344,50000-50100";
-    private const string DiscordTlsPorts = "2053,2083,2087,2096,8443";
+    private const string SpaceMarineUdpNetworks = SpaceMarineSharedNetworks + " --ipset=../profiles/" + SpaceMarineUdpIps;
+    internal const string DiscordVoiceOverlap = "50000-50100";
+    private const string DiscordVoicePorts = "19294-19344," + DiscordVoiceOverlap;
+    internal const string DiscordTlsPorts = "2053,2083,2087,2096,8443";
     private const string WarpUdpPorts = "500,1701,2408,4500,4443,8443,8095";
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string DirectoryPath = Path.Combine(Root, "engine");
@@ -68,8 +76,8 @@ internal sealed class Engine : IDisposable
     {
         cancellation.ThrowIfCancellationRequested();
         var arguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
-        var zapret2 = WarpZapret2.IsSelected(warp.BuiltIn)
-            ? WarpZapret2.Arguments(Path.Combine(Root, "profiles"), warp.BuiltIn) : null;
+        var zapret2 = Zapret2.Arguments(Path.Combine(Root, "profiles"), warp.BuiltIn, darktide.BuiltIn,
+            spaceMarine.BuiltIn, DiscordEnabled(discord), discord.BuiltIn, youtube.BuiltIn);
         if (arguments.Length == 0 && zapret2 == null) return false;
 
         foreach (var name in new[] { "winws", "winws2" })
@@ -88,8 +96,8 @@ internal sealed class Engine : IDisposable
             if (arguments.Length != 0) StartProcess(Info(LegacyExecutable, arguments), cancellation);
             if (zapret2 != null)
             {
-                StartProcess(Info(WarpZapret2.Executable, zapret2), cancellation);
-                if (!Running) throw new InvalidOperationException("Сетевой фильтр завершился при запуске WARP.");
+                StartProcess(Info(Zapret2.Executable, zapret2), cancellation);
+                if (!Running) throw new InvalidOperationException("Процесс сетевого фильтра завершился при запуске.");
             }
         }
         catch
@@ -146,12 +154,20 @@ internal sealed class Engine : IDisposable
         ServiceStrategy discord = ServiceStrategy.Standard, ServiceStrategy youtube = ServiceStrategy.Standard,
         Strategy spaceMarine = Strategy.None)
     {
+        var warpStrategy = warp ? WarpStrategy.Standard : WarpStrategy.None;
+        var discordSelection = new StrategySelection<ServiceStrategy>(discord);
         var arguments = Arguments(new StrategySelection<Strategy>(strategy),
-            new StrategySelection<WarpStrategy>(warp ? WarpStrategy.Standard : WarpStrategy.None),
-            new StrategySelection<ServiceStrategy>(discord), new StrategySelection<ServiceStrategy>(youtube),
-            new StrategySelection<Strategy>(spaceMarine));
-        if (arguments.Length == 0) return 0;
-        using (var child = new Process { StartInfo = Info(LegacyExecutable, "--dry-run " + arguments) })
+            new StrategySelection<WarpStrategy>(warpStrategy), discordSelection,
+            new StrategySelection<ServiceStrategy>(youtube), new StrategySelection<Strategy>(spaceMarine));
+        var native = Zapret2.Arguments(Path.Combine(Root, "profiles"), warpStrategy, strategy,
+            spaceMarine, DiscordEnabled(discordSelection), discord, youtube);
+        var result = arguments.Length == 0 ? 0 : ValidateProcess(LegacyExecutable, arguments);
+        return result == 0 && native != null ? ValidateProcess(Zapret2.Executable, native) : result;
+    }
+
+    private static int ValidateProcess(string executable, string arguments)
+    {
+        using (var child = new Process { StartInfo = Info(executable, "--dry-run " + arguments) })
         {
             child.OutputDataReceived += (sender, args) => { if (args.Data != null) Console.WriteLine(args.Data); };
             child.ErrorDataReceived += (sender, args) => { if (args.Data != null) Console.Error.WriteLine(args.Data); };
@@ -170,7 +186,7 @@ internal sealed class Engine : IDisposable
 
     private static ProcessStartInfo Info(string executable, string arguments)
     {
-        var bundle = executable == WarpZapret2.Executable ? Zapret2Directory : DirectoryPath;
+        var bundle = executable == Zapret2.Executable ? Zapret2Directory : DirectoryPath;
         var sources = new[] {
             Path.Combine(bundle, executable), Path.Combine(DirectoryPath, "cygwin1.dll"),
             Path.Combine(bundle, "WinDivert.dll"), Path.Combine(DirectoryPath, "WinDivert64.sys")
@@ -233,18 +249,21 @@ internal sealed class Engine : IDisposable
         var youtubeDs = youtubeSelection.Imported;
         var darktideEnabled = darktide != Strategy.None;
         var spaceMarineEnabled = spaceMarine != Strategy.None;
-        var discordEnabled = discordDs != null || discord != ServiceStrategy.None;
+        var discordEnabled = DiscordEnabled(discordSelection);
         var useDiscordAlternateTls = discord == ServiceStrategy.LegacyAlternateTls;
         var youtubeEnabled = youtubeDs != null || youtube != ServiceStrategy.None;
         var warpEnabled = warp != WarpStrategy.None;
-        var warpZapret2 = WarpZapret2.IsSelected(warp);
+        var warpZapret2 = Zapret2.UsesWarp(warp);
+        var spaceMarineZapret2 = Zapret2.UsesGame(spaceMarine);
+        var discordZapret2 = Zapret2.UsesDiscord(discord);
+        var youtubeZapret2 = Zapret2.UsesYoutube(youtube);
 
         if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
-        if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warpEnabled)
-        {
+        if (darktideEnabled || spaceMarineEnabled || warpEnabled ||
+            (discordEnabled && !discordZapret2) || (youtubeEnabled && !youtubeZapret2))
             tcp.Add("443");
+        if (darktideEnabled || spaceMarineEnabled || discordEnabled || youtubeEnabled || warpEnabled)
             udp.Add("443");
-        }
         if (warpEnabled) udp.Add(WarpUdpPorts);
 
         var hosts = new List<string>();
@@ -254,14 +273,17 @@ internal sealed class Engine : IDisposable
         if (darktideEnabled)
         {
             hosts.Add(darktideHosts);
-            udp.Add(DarktideUdpPorts);
-            rules.Add(GameUdpRule(DarktideUdpPorts, GameUdpOptions(darktide)));
+            if (!Zapret2.UsesGame(darktide))
+            {
+                udp.Add(DarktideUdpPorts);
+                rules.Add(GameUdpRule(DarktideUdpPorts, GameUdpOptions(darktide)));
+            }
         }
 
         if (discordEnabled)
         {
-            tcp.Add(DiscordTlsPorts);
-            udp.Add(spaceMarineEnabled ? "19294-19344" : DiscordVoicePorts);
+            if (!discordZapret2) tcp.Add(DiscordTlsPorts);
+            udp.Add(spaceMarineEnabled && !spaceMarineZapret2 ? "19294-19344" : DiscordVoicePorts);
             var exclusion = darktideEnabled ? " --hostlist-exclude=../profiles/darktide.txt" : "";
             if (discordDs != null)
             {
@@ -269,6 +291,10 @@ internal sealed class Engine : IDisposable
                 rules.Add("--filter-udp=" + DiscordVoicePorts + " " + voice);
                 rules.Add("--filter-tcp=" + DiscordTlsPorts + " --filter-l7=tls --hostlist-domains=discord.media " + discordDs.Media);
                 AddDsWebRules(rules, discordHosts + exclusion, discordDs);
+            }
+            else if (discordZapret2)
+            {
+                rules.Add(WithoutTls(ReadProfile(Path.Combine(profiles, "discord-base.args"))));
             }
             else
             {
@@ -286,7 +312,13 @@ internal sealed class Engine : IDisposable
             if (useDiscordAlternateTls)
                 rules.Add(webRules.Replace("{hosts}", discordHosts).Replace("{tls}", DiscordAlternateTls));
             if (hosts.Count != 0)
-                rules.Add(webRules.Replace("{hosts}", string.Join(" ", hosts)).Replace("{tls}", Standard));
+            {
+                var sharedHosts = string.Join(" ", hosts);
+                var sharedRules = webRules.Replace("{hosts}", sharedHosts).Replace("{tls}", Standard);
+                if (discordZapret2)
+                    sharedRules = MapTls(sharedRules, rule => darktideEnabled ? rule.Replace(sharedHosts, darktideHosts) : null);
+                rules.Add(sharedRules);
+            }
         }
         if (warpEnabled)
         {
@@ -294,18 +326,32 @@ internal sealed class Engine : IDisposable
                 rules.Add("--filter-tcp=443 --filter-l7=tls --ipset=../profiles/warp-masque.txt " + TimestampFake);
             var warpRules = ReadProfile(Path.Combine(profiles, "warp.args")).Replace("{tls}", Standard)
                 .Replace("{masque-quic-repeats}", warp == WarpStrategy.QuicBurst ? "11" : "6");
-            rules.Add(warpZapret2 ? WarpZapret2.LegacyFallback(warpRules) : warpRules);
+            rules.Add(warpZapret2 ? Zapret2.LegacyFallback(warpRules) : warpRules);
         }
-        if (youtubeDs != null)
-            AddDsYouTubeRules(rules, youtubeDs);
-        else if (youtubeEnabled)
-            rules.Add(ServiceRules(Path.Combine(profiles, "youtube.args"), youtube));
+        if (youtubeEnabled)
+        {
+            var youtubeRules = new List<string>();
+            if (youtubeDs != null)
+                AddDsYouTubeRules(youtubeRules, youtubeDs);
+            else
+                youtubeRules.Add(ServiceRules(Path.Combine(profiles, "youtube.args"),
+                    youtubeZapret2 ? ServiceStrategy.Standard : youtube));
+            var selectedRules = string.Join(" --new ", youtubeRules);
+            if (youtubeZapret2)
+                selectedRules = WithoutTls(selectedRules);
+            else if (discordZapret2)
+                selectedRules = MapTls(selectedRules, rule => rule + " --hostlist-exclude=../profiles/discord.txt");
+            rules.Add(selectedRules);
+        }
         if (spaceMarineEnabled)
         {
             tcp.Add(SpaceMarineTcpPorts);
-            udp.Add(SpaceMarineUdpPorts);
-            // Existing service rules take priority, including Discord voice on overlapping UDP ports.
-            rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + GameUdpOptions(spaceMarine)));
+            if (!spaceMarineZapret2)
+            {
+                udp.Add(SpaceMarineUdpPorts);
+                // Existing service rules take priority, including Discord voice on overlapping UDP ports.
+                rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + GameUdpOptions(spaceMarine)));
+            }
             rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + Standard);
             rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + Standard);
             rules.Add("--filter-udp=443 --filter-l7=quic " + SpaceMarineHosts +
@@ -315,7 +361,25 @@ internal sealed class Engine : IDisposable
         if (rules.Count == 0) return "";
         var profilesArgument = string.Join(" --new ", rules);
         return "--wf-tcp=" + string.Join(",", tcp) + " --wf-udp=" + string.Join(",", udp) +
-            " " + (warpZapret2 ? WarpZapret2.ExcludeEndpoints(profilesArgument) : profilesArgument);
+            " " + (warpZapret2 ? Zapret2.ExcludeWarpEndpoints(profilesArgument) : profilesArgument);
+    }
+
+    private static string WithoutTls(string rules)
+    {
+        return MapTls(rules, rule => null);
+    }
+
+    private static string MapTls(string rules, Func<string, string> transform)
+    {
+        const string next = " --new ";
+        return string.Join(next, rules.Split(new[] { next }, StringSplitOptions.None)
+            .Select(rule => rule.Contains(" --filter-l7=tls ") ? transform(rule) : rule)
+            .Where(rule => rule != null));
+    }
+
+    private static bool DiscordEnabled(StrategySelection<ServiceStrategy> discord)
+    {
+        return discord.Imported != null || discord.BuiltIn != ServiceStrategy.None;
     }
 
     private static void AddDsWebRules(List<string> rules, string hosts, DsStrategy profile)

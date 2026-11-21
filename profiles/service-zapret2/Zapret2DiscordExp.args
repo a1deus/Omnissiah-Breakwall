@@ -1,0 +1,13 @@
+# Source: general (EXP5).bat. TLS sections scoped to Breakwall hostlists.
+--name=discord-media-tls --filter-tcp={media-ports} --filter-l7=tls --hostlist-domains=discord.media{exclude}
+--payload=tls_client_hello
+--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_google:sni_del:sni_first=www.google.com:sni_snt_new=0
+--lua-desync=fake:blob=ch_clone:repeats=6:tcp_ts=-600000
+--lua-desync=multisplit:pos=sniext+1
+--new
+--name=discord-tls --filter-tcp=443 --filter-l7=tls --hostlist="{profiles}/discord.txt"{exclude}
+--payload=tls_client_hello
+--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_steamchat:sni_del:sni_first=winelab.ru:sni_snt_new=0
+--lua-desync=fake:blob=ch_clone:repeats=6:tcp_ts=-600000
+--lua-desync=fake:blob=tls_steamchat:tls_mod=rnd,padencap:repeats=4:badsum
+--lua-desync=multisplit:pos=sniext+1,midsld:seqovl=1

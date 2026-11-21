@@ -1,0 +1,4 @@
+# Source: general (CIRCULAR).bat, gamefilterudp.
+--out-range=-n3
+--payload=known,unknown
+--lua-desync=fake:blob=active_game:repeats=8:payload=known,unknown
