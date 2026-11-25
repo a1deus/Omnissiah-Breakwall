@@ -14,7 +14,8 @@ internal enum Strategy
     Standard, Alternate, FlowAlt2, FlowAlt3, FlowExp, FlowSimpleAlt2, Combined, FlowAlt12, CommunityAlt10,
     ActiveGameShortTen, ActiveGameMediumFourteen, ActiveGameMediumTen,
     ActiveGameSix, ActiveGameEight, ActiveGameFour, None,
-    Zapret2Circular, Zapret2Exp, Zapret2DoubleFake
+    Zapret2Circular, Zapret2Exp, Zapret2DoubleFake,
+    DbankShort, ActiveGameMinimal, TlsSmallOverlap, TlsMd5Disorder, Zapret2TlsClone, Zapret2TlsCircular
 }
 internal enum ServiceStrategy
 {
@@ -41,7 +42,7 @@ internal sealed class Engine : IDisposable
     private const string SniSplit = "--dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin";
     private const string GamePayload = "--dpi-desync-fake-unknown-udp=ACTIVE_GAME_UDP.bin";
     internal const string DarktideUdpPorts = "35500-35650,35670";
-    private const string SpaceMarineTcpPorts = "11700-11720";
+    internal const string SpaceMarineTcpPorts = "11700-11720";
     internal const string SpaceMarineUdpPorts = "48800-55000";
     private const string SpaceMarineHosts = "--hostlist=../profiles/space-marine-2.txt";
     internal const string SpaceMarineSharedIps = "space-marine-2-ip.txt";
@@ -257,6 +258,9 @@ internal sealed class Engine : IDisposable
         var spaceMarineZapret2 = Zapret2.UsesGame(spaceMarine);
         var discordZapret2 = Zapret2.UsesDiscord(discord);
         var youtubeZapret2 = Zapret2.UsesYoutube(youtube);
+        var darktideAlternateTls = HasGameTls(darktide);
+        var darktideNativeTls = Zapret2.UsesGameTls(darktide);
+        var spaceMarineNativeTls = Zapret2.UsesGameTls(spaceMarine);
 
         if (darktideEnabled || discordEnabled || youtubeEnabled) tcp.Add("80");
         if (darktideEnabled || spaceMarineEnabled || warpEnabled ||
@@ -306,6 +310,9 @@ internal sealed class Engine : IDisposable
             }
         }
 
+        if (darktideAlternateTls && !darktideNativeTls)
+            rules.Add("--filter-tcp=443 --filter-l7=tls " + darktideHosts + " " + GameTlsOptions(darktide));
+
         if (hosts.Count != 0 || useDiscordAlternateTls)
         {
             var webRules = ReadProfile(Path.Combine(profiles, "base.args"));
@@ -315,8 +322,13 @@ internal sealed class Engine : IDisposable
             {
                 var sharedHosts = string.Join(" ", hosts);
                 var sharedRules = webRules.Replace("{hosts}", sharedHosts).Replace("{tls}", Standard);
-                if (discordZapret2)
-                    sharedRules = MapTls(sharedRules, rule => darktideEnabled ? rule.Replace(sharedHosts, darktideHosts) : null);
+                if (discordZapret2 || darktideAlternateTls)
+                {
+                    var tlsHosts = hosts.Where(host => (host != discordHosts || !discordZapret2) &&
+                        (host != darktideHosts || !darktideAlternateTls)).ToArray();
+                    sharedRules = MapTls(sharedRules, rule => tlsHosts.Length == 0 ? null :
+                        rule.Replace(sharedHosts, string.Join(" ", tlsHosts)));
+                }
                 rules.Add(sharedRules);
             }
         }
@@ -345,21 +357,32 @@ internal sealed class Engine : IDisposable
         }
         if (spaceMarineEnabled)
         {
-            tcp.Add(SpaceMarineTcpPorts);
+            if (!spaceMarineNativeTls) tcp.Add(SpaceMarineTcpPorts);
             if (!spaceMarineZapret2)
             {
                 udp.Add(SpaceMarineUdpPorts);
                 // Existing service rules take priority, including Discord voice on overlapping UDP ports.
                 rules.Add(GameUdpRule(SpaceMarineUdpPorts, SpaceMarineUdpNetworks + " " + GameUdpOptions(spaceMarine)));
             }
-            rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + Standard);
-            rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + Standard);
+            if (!spaceMarineNativeTls)
+            {
+                var gameTls = GameTlsOptions(spaceMarine);
+                rules.Add("--filter-tcp=" + SpaceMarineTcpPorts + " --filter-l7=tls " + SpaceMarineTcpNetworks + " " + gameTls);
+                rules.Add("--filter-tcp=443 --filter-l7=tls " + SpaceMarineHosts + " " + gameTls);
+            }
             rules.Add("--filter-udp=443 --filter-l7=quic " + SpaceMarineHosts +
                 " --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin");
         }
 
         if (rules.Count == 0) return "";
         var profilesArgument = string.Join(" --new ", rules);
+        // Native game TLS is handled before winws. Exclude it from broad service TLS fallbacks too.
+        if (darktideNativeTls || spaceMarineNativeTls)
+        {
+            var exclusions = (darktideNativeTls ? " --hostlist-exclude=../profiles/darktide.txt" : "") +
+                (spaceMarineNativeTls ? " --hostlist-exclude=../profiles/space-marine-2.txt" : "");
+            profilesArgument = MapTls(profilesArgument, rule => rule + exclusions);
+        }
         return "--wf-tcp=" + string.Join(",", tcp) + " --wf-udp=" + string.Join(",", udp) +
             " " + (warpZapret2 ? Zapret2.ExcludeWarpEndpoints(profilesArgument) : profilesArgument);
     }
@@ -408,7 +431,15 @@ internal sealed class Engine : IDisposable
         switch (strategy)
         {
             case Strategy.Standard:
+            case Strategy.TlsSmallOverlap:
+            case Strategy.TlsMd5Disorder:
+            case Strategy.Zapret2TlsClone:
+            case Strategy.Zapret2TlsCircular:
                 return stun + " --dpi-desync-cutoff=n2";
+            case Strategy.DbankShort:
+                return "--dpi-desync-fake-unknown-udp=quic_initial_dbankcloud_ru.bin --dpi-desync-repeats=10 --dpi-desync-cutoff=n2";
+            case Strategy.ActiveGameMinimal:
+                return GamePayload + " --dpi-desync-repeats=2 --dpi-desync-cutoff=n2";
             case Strategy.Alternate:
                 return stun + " --dpi-desync-repeats=2 --dpi-desync-cutoff=n4";
             case Strategy.FlowAlt2:
@@ -441,6 +472,24 @@ internal sealed class Engine : IDisposable
                 return GamePayload + " --dpi-desync-repeats=4 --dpi-desync-cutoff=n5";
             default:
                 throw new ArgumentOutOfRangeException("strategy");
+        }
+    }
+
+    private static bool HasGameTls(Strategy strategy)
+    {
+        return strategy == Strategy.TlsSmallOverlap || strategy == Strategy.TlsMd5Disorder || Zapret2.UsesGameTls(strategy);
+    }
+
+    private static string GameTlsOptions(Strategy strategy)
+    {
+        switch (strategy)
+        {
+            case Strategy.TlsSmallOverlap:
+                return "--dpi-desync=multisplit --dpi-desync-split-pos=1,midsld --dpi-desync-split-seqovl=1";
+            case Strategy.TlsMd5Disorder:
+                return "--dpi-desync=fakeddisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=16 --dpi-desync-fooling=md5sig";
+            default:
+                return Standard;
         }
     }
 

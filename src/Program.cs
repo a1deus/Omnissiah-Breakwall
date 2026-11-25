@@ -377,6 +377,12 @@ internal sealed class MainWindow : Form
         picker.AddNumbered(prefix, game, Strategy.Zapret2Circular, "UDP · 8 повторов, 3 пакета");
         picker.AddNumbered(prefix, game, Strategy.Zapret2Exp, "UDP · два шаблона");
         picker.AddNumbered(prefix, game, Strategy.Zapret2DoubleFake, "UDP · 12 повторов, 3 пакета");
+        picker.AddNumbered(prefix, game, Strategy.DbankShort, "короткий dbankcloud");
+        picker.AddNumbered(prefix, game, Strategy.ActiveGameMinimal, "минимальный игровой UDP");
+        picker.AddNumbered(prefix, game, Strategy.TlsSmallOverlap, "TLS с малым перекрытием");
+        picker.AddNumbered(prefix, game, Strategy.TlsMd5Disorder, "TLS fakeddisorder + MD5");
+        picker.AddNumbered(prefix, game, Strategy.Zapret2TlsClone, "копия ClientHello");
+        picker.AddNumbered(prefix, game, Strategy.Zapret2TlsCircular, "смена TLS-схемы");
     }
 
     private void ConfigureNavigation()
@@ -615,9 +621,9 @@ internal sealed class MainWindow : Form
         AddInstructionSection(sections, "Стратегии",
             "На главном экране откройте «Настройка стратегий». В разделах «Игры» и «Сервисы» " +
             "выберите нужные варианты. У каждой стратегии есть код и короткое описание. " +
-            "Игровые варианты DT и SM различаются обработкой UDP. Начните с DT01 или SM01. " +
+            "Начните с DT01 или SM01. Варианты 01–20 различаются обработкой игрового UDP. " +
             "Варианты 16–18 используют zapret2 для игрового UDP и запускаются независимо от галочки WARP. " +
-            "Сравните вариант 16 с 14, чтобы проверить один рецепт в двух движках. " +
+            "Сравните вариант 16 с 14, чтобы проверить один рецепт в двух движках. Варианты 19–24 экспериментальные: 19–20 меняют UDP, 21–24 — TLS с базовым игровым STUN. Варианты 23–24 используют zapret2 для TLS. " +
             "Для TLS Discord и CDN изображений доступны DS11–DS13. Новые варианты YouTube для TLS — YT11 и YT12. " +
             "«Выключено» отключает правила для выбранной игры или сервиса. " +
             "Вернитесь на главный экран и нажмите «Включить». Во время подключения повторное нажатие на «Подождите» отменяет его. " +

@@ -39,6 +39,11 @@ internal static class Zapret2
         return strategy >= Strategy.Zapret2Circular && strategy <= Strategy.Zapret2DoubleFake;
     }
 
+    internal static bool UsesGameTls(Strategy strategy)
+    {
+        return strategy == Strategy.Zapret2TlsClone || strategy == Strategy.Zapret2TlsCircular;
+    }
+
     internal static bool UsesDiscord(ServiceStrategy strategy)
     {
         return strategy == ServiceStrategy.Zapret2DiscordExp || strategy == ServiceStrategy.Zapret2DiscordCircular;
@@ -59,7 +64,11 @@ internal static class Zapret2
         var withDiscord = UsesDiscord(discord);
         var withYoutube = UsesYoutube(youtube);
         var withServices = withDiscord || withYoutube;
-        if (!withWarp && !withGame && !withServices) return null;
+        var withDarktideTls = UsesGameTls(darktide);
+        var withSpaceMarineTls = UsesGameTls(spaceMarine);
+        var withGameTls = withDarktideTls || withSpaceMarineTls;
+        var withTcpProfiles = withServices || withGameTls;
+        if (!withWarp && !withGame && !withTcpProfiles) return null;
 
         var rules = new List<string>();
         var scopes = new List<string>();
@@ -70,7 +79,7 @@ internal static class Zapret2
             var ranges = ReadRanges(profiles, MasqueIps, ApiIps);
             var outbound = MatchAddresses(ranges, "DstAddr");
             var inbound = MatchAddresses(ranges, "SrcAddr");
-            if (withGame || withServices)
+            if (withGame || withTcpProfiles)
             {
                 // Keep WARP addresses paired with WARP ports when sharing the kernel filter.
                 outbound = WarpDirection(outbound, "DstPort");
@@ -78,9 +87,9 @@ internal static class Zapret2
             }
             scopes.Add("((outbound and (" + outbound + ")) or (inbound and (" + inbound + ")))");
             var warpRules = ReadRules(profiles, "warp-zapret2", warp.ToString());
-            if (withServices)
+            if (withTcpProfiles)
             {
-                // Service TCP capture also sees these ports on hosts outside WARP's normal address filter.
+                // Shared TCP capture also sees these ports on hosts outside WARP's normal address filter.
                 var ipsets = " --ipset=" + QuotePath(profiles, MasqueIps) + " --ipset=" + QuotePath(profiles, ApiIps);
                 warpRules = string.Join(NextRule, warpRules.Split(new[] { NextRule }, StringSplitOptions.None)
                     .Select(rule => rule.Contains(" --hostlist=") ? rule + ipsets : rule));
@@ -112,6 +121,30 @@ internal static class Zapret2
             rules.Add(GameRule(profiles, "space-marine-2-udp", Engine.SpaceMarineUdpPorts, spaceMarine, ipsets));
         }
 
+        if (withGameTls)
+        {
+            var gamePorts = withSpaceMarineTls ? "443," + Engine.SpaceMarineTcpPorts : "443";
+            tcp.Add(gamePorts);
+            scopes.Add("((outbound and tcp and " + MatchPorts(gamePorts, "tcp.DstPort") +
+                ") or (inbound and tcp and " + MatchPorts(gamePorts, "tcp.SrcPort") + "))");
+            var exclusions = warp == WarpStrategy.None ? "" :
+                " --hostlist-exclude=" + QuotePath(profiles, "warp.txt") +
+                " --ipset-exclude=" + QuotePath(profiles, MasqueIps) + " --ipset-exclude=" + QuotePath(profiles, ApiIps);
+            if (withDarktideTls)
+                rules.Add(GameTlsRule(profiles, "darktide-tls", "443 --hostlist=" + QuotePath(profiles, "darktide.txt"),
+                    darktide, exclusions));
+            if (withSpaceMarineTls)
+            {
+                rules.Add(GameTlsRule(profiles, "space-marine-2-tls", "443 --hostlist=" + QuotePath(profiles, "space-marine-2.txt"),
+                    spaceMarine, exclusions));
+                // Quote both ipsets: portable folders may contain spaces or Cyrillic characters.
+                var networks = "--ipset=" + QuotePath(profiles, Engine.SpaceMarineSharedIps) +
+                    " --ipset=" + QuotePath(profiles, "space-marine-2-tcp-ip.txt");
+                rules.Add(GameTlsRule(profiles, "space-marine-2-extra-tls", Engine.SpaceMarineTcpPorts + " " + networks,
+                    spaceMarine, exclusions));
+            }
+        }
+
         if (withServices)
         {
             var servicePorts = withDiscord ? "443," + Engine.DiscordTlsPorts : "443";
@@ -137,9 +170,12 @@ internal static class Zapret2
         if (withGame) blobs.Add(BlobArgument(engineDirectory, "active_game:@ACTIVE_GAME_UDP.bin"));
         if (!withWarp)
         {
-            if (withServices) blobs.Add(BlobArgument(bundle, GoogleBlob));
-            if (discord == ServiceStrategy.Zapret2DiscordCircular) blobs.Add(BlobArgument(bundle, StunBlob));
-            if (discord == ServiceStrategy.Zapret2DiscordExp || youtube == ServiceStrategy.Zapret2YoutubeCircular)
+            if (withServices || darktide == Strategy.Zapret2TlsCircular || spaceMarine == Strategy.Zapret2TlsCircular)
+                blobs.Add(BlobArgument(bundle, GoogleBlob));
+            if (discord == ServiceStrategy.Zapret2DiscordCircular || darktide == Strategy.Zapret2TlsCircular ||
+                spaceMarine == Strategy.Zapret2TlsCircular) blobs.Add(BlobArgument(bundle, StunBlob));
+            if (discord == ServiceStrategy.Zapret2DiscordExp || youtube == ServiceStrategy.Zapret2YoutubeCircular ||
+                darktide == Strategy.Zapret2TlsClone || spaceMarine == Strategy.Zapret2TlsClone)
                 blobs.Add(BlobArgument(bundle, SteamChatBlob));
             if (darktide == Strategy.Zapret2Exp || spaceMarine == Strategy.Zapret2Exp ||
                 youtube == ServiceStrategy.Zapret2YoutubeCircular)
@@ -154,6 +190,12 @@ internal static class Zapret2
         if (udpOut.Count != 0) capture += "--wf-udp-out=" + string.Join(",", udpOut) + " ";
         return capture + "--wf-tcp-empty=0 --ctrack-disable=0 --wf-priority=10 --wf-raw-filter=\"" + string.Join(" or ", scopes) + "\"" +
             " " + string.Join(" ", lua) + " " + string.Join(" ", blobs) + " " + string.Join(NextRule, rules);
+    }
+
+    private static string GameTlsRule(string profiles, string name, string filter, Strategy strategy, string exclusions)
+    {
+        return "--name=" + name + " --filter-tcp=" + filter + " --filter-l7=tls" + exclusions + " " +
+            ReadRules(profiles, "game-tls-zapret2", strategy.ToString()).Replace("{key}", name);
     }
 
     private static string ServiceRules(string profiles, ServiceStrategy strategy, string exclusions)
