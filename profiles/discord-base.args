@@ -1,3 +1,0 @@
---filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=ACTIVE_DISCORD_UDP.bin --dpi-desync-fake-stun=ACTIVE_DISCORD_UDP.bin --dpi-desync-repeats=6 --dpi-desync-cutoff=n6
---new
---filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.media {tls}
