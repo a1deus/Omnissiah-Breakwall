@@ -40,7 +40,7 @@ public sealed class AutoCheckRunner : MarshalByRefObject
     {
         this.root=root;this.scratch=scratch;Directory.CreateDirectory(scratch);
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-        Acceptance();Backend();Subprocess();UdpChecks.Run(scratch);Ui();
+        Acceptance();Backend();Subprocess();UdpChecks.Run(scratch);SpaceMarineChecks.Run(root,scratch);Ui();
         Console.WriteLine("AUTOSELECT: SCOPE, RESPONSE VALIDATION, ISOLATED PLANS, PROGRESS, FAILURE, CANCELLATION, CLEANUP, UI, APPLY AND PERSISTENCE OK; NO EXTERNAL NETWORK/FILTER/TUNNEL");
     }
     void Acceptance()

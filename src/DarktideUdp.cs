@@ -76,8 +76,11 @@ internal sealed class DarktideLogTargets : IDarktideTargets
 
     internal static bool IsPublicGameEndpoint(IPAddress ip, int port)
     {
-        if (ip == null || ip.AddressFamily != AddressFamily.InterNetwork ||
-            !((port >= 35500 && port <= 35650) || port == 35670)) return false;
+        return ((port >= 35500 && port <= 35650) || port == 35670) && IsPublicIpv4(ip);
+    }
+    internal static bool IsPublicIpv4(IPAddress ip)
+    {
+        if (ip == null || ip.AddressFamily != AddressFamily.InterNetwork) return false;
         var b = ip.GetAddressBytes();
         if (b[0] == 0 || b[0] == 10 || b[0] == 127 || b[0] >= 224 ||
             (b[0] == 100 && b[1] >= 64 && b[1] <= 127) || (b[0] == 169 && b[1] == 254) ||
@@ -135,10 +138,18 @@ internal interface IDarktideDatagrams
 {
     Task<byte[]> Request(IPEndPoint endpoint, byte[] request, CancellationToken cancellation);
 }
-
-internal sealed class DarktideDatagrams : IDarktideDatagrams
+internal interface IMatchingDatagrams
 {
-    public async Task<byte[]> Request(IPEndPoint endpoint, byte[] request, CancellationToken cancellation)
+    Task<byte[]> RequestMatching(IPEndPoint endpoint, byte[] request, Func<byte[], bool> accept, CancellationToken cancellation);
+}
+
+internal sealed class DarktideDatagrams : IDarktideDatagrams, IMatchingDatagrams
+{
+    public Task<byte[]> Request(IPEndPoint endpoint, byte[] request, CancellationToken cancellation)
+    {
+        return RequestMatching(endpoint, request, reply => true, cancellation);
+    }
+    public async Task<byte[]> RequestMatching(IPEndPoint endpoint, byte[] request, Func<byte[], bool> accept, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
         using (var client = new UdpClient(endpoint.AddressFamily))
@@ -150,17 +161,25 @@ internal sealed class DarktideDatagrams : IDarktideDatagrams
                 // server IP/port. No stale socket crosses strategy boundaries.
                 client.Connect(endpoint);
                 await client.SendAsync(request, request.Length);
-                var receiving = client.ReceiveAsync();
-                if (await Task.WhenAny(receiving, Task.Delay(1800, cancellation)) == receiving)
+                var deadline = Task.Delay(1800, cancellation);
+                // Echo nodes may reflect DPI fake packets before the real
+                // nonce. Ignore those without extending the total deadline.
+                for (var ignored = 0; ignored < 128; ignored++)
                 {
-                    var reply = await receiving;
-                    cancellation.ThrowIfCancellationRequested();
-                    return reply.RemoteEndPoint.Equals(endpoint) ? reply.Buffer : null;
+                    var receiving = client.ReceiveAsync();
+                    if (await Task.WhenAny(receiving, deadline) == receiving)
+                    {
+                        var reply = await receiving;
+                        cancellation.ThrowIfCancellationRequested();
+                        if (reply.RemoteEndPoint.Equals(endpoint) && accept(reply.Buffer)) return reply.Buffer;
+                        continue;
+                    }
+                    client.Close();
+                    try { await receiving; }
+                    catch (SocketException) { }
+                    catch (ObjectDisposedException) { }
+                    cancellation.ThrowIfCancellationRequested(); return null;
                 }
-                client.Close();
-                try { await receiving; }
-                catch (SocketException) { }
-                catch (ObjectDisposedException) { }
                 cancellation.ThrowIfCancellationRequested(); return null;
             }
             catch (SocketException) { cancellation.ThrowIfCancellationRequested(); return null; }

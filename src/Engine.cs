@@ -46,6 +46,8 @@ internal sealed class Engine : IDisposable
     private readonly Queue<string> output = new Queue<string>();
     private readonly List<Process> processes = new List<Process>();
     private SafeFileHandle job;
+    private SpaceMarineDiscovery spaceMarineDiscovery;
+    private string spaceMarineScopeFile;
 
     public bool Running { get { return processes.Count != 0 && processes.All(process => !process.HasExited); } }
 
@@ -56,21 +58,41 @@ internal sealed class Engine : IDisposable
 
     public bool Start(StrategySelection<Strategy> darktide, StrategySelection<WarpStrategy> warp,
         StrategySelection<ServiceStrategy> discord, StrategySelection<ServiceStrategy> youtube,
-        StrategySelection<Strategy> spaceMarine, CancellationToken cancellation)
+        StrategySelection<Strategy> spaceMarine, CancellationToken cancellation, string[] spaceMarineEchoAddresses = null)
     {
         cancellation.ThrowIfCancellationRequested();
-        var arguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
-        if (arguments == null) return false;
-
+        var basicArguments = Arguments(darktide, warp, discord, youtube, spaceMarine);
+        if (basicArguments == null) return false;
         EnsureNoOtherFilters();
 
         lock (output) output.Clear();
         try
         {
             cancellation.ThrowIfCancellationRequested();
+            if (spaceMarine.BuiltIn != Strategy.None)
+            {
+                var addresses = spaceMarineEchoAddresses ?? SpaceMarineEchoCache.Default.Read(cancellation).Take(16).Select(endpoint => endpoint.Address.ToString()).ToArray();
+                if (addresses.Length != 0)
+                {
+                    if (addresses.Length > 64 || addresses.Any(value => { System.Net.IPAddress ip; return !System.Net.IPAddress.TryParse(value, out ip) || !SpaceMarineEchoCache.Valid(ip); }))
+                        throw new InvalidOperationException("Недопустимые адреса UDP-диагностики.");
+                    var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Omnissiah Breakwall", "runtime");
+                    Directory.CreateDirectory(directory);
+                    spaceMarineScopeFile = Path.Combine(directory, "sm2-scope-" + Guid.NewGuid().ToString("N") + ".txt");
+                    File.WriteAllLines(spaceMarineScopeFile, addresses.Distinct().ToArray(), new UTF8Encoding(false));
+                }
+            }
+            var arguments = spaceMarineScopeFile == null ? basicArguments : Zapret2.Arguments(Path.Combine(Root, "profiles"), darktide, warp, discord, youtube, spaceMarine, spaceMarineScopeFile);
+            if (arguments == null) return false;
             job = CreateKillJob();
-            StartProcess(Info(arguments), cancellation);
+            var info = Info(arguments);
+            StartProcess(info, cancellation);
             if (!Running) throw new InvalidOperationException("Процесс сетевого фильтра завершился при запуске.");
+            if (spaceMarine.BuiltIn != Strategy.None)
+            {
+                spaceMarineDiscovery = SpaceMarineDiscovery.TryStart(Path.Combine(Path.GetDirectoryName(info.FileName), "WinDivert.dll"), SpaceMarineEchoCache.Default);
+                if (spaceMarineDiscovery == null) lock (output) output.Enqueue("Space Marine 2: локальное получение UDP-адресов недоступно. Проверьте файлы WinDivert и перезапустите программу.");
+            }
         }
         catch
         {
@@ -237,6 +259,7 @@ internal sealed class Engine : IDisposable
 
     public void Dispose()
     {
+        if (spaceMarineDiscovery != null) { spaceMarineDiscovery.Dispose(); spaceMarineDiscovery = null; }
         if (job != null)
         {
             job.Dispose();
@@ -257,6 +280,11 @@ internal sealed class Engine : IDisposable
             finally { process.Dispose(); }
         }
         processes.Clear();
+        if (spaceMarineScopeFile != null)
+        {
+            try { File.Delete(spaceMarineScopeFile); spaceMarineScopeFile = null; }
+            catch (Exception error) { if (failure == null) failure = error; }
+        }
         if (failure != null) throw new InvalidOperationException(failure.Message, failure);
     }
 

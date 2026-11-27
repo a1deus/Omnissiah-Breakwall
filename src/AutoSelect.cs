@@ -16,6 +16,7 @@ internal sealed class AutoCandidate
 {
     public AutoGroup Group;
     public string Id, Code, Label;
+    public string[] SpaceMarineEchoAddresses;
     public StrategySelection<Strategy> Darktide = new StrategySelection<Strategy>(Strategy.None);
     public StrategySelection<Strategy> SpaceMarine = new StrategySelection<Strategy>(Strategy.None);
     public StrategySelection<ServiceStrategy> Discord = new StrategySelection<ServiceStrategy>(ServiceStrategy.None);
@@ -56,6 +57,10 @@ internal interface IAutoProbePreparation
 {
     Task<ProbeReport> PrepareGroup(AutoGroup group, CancellationToken cancellation);
 }
+internal interface IAutoCandidateScope
+{
+    void Configure(AutoCandidate candidate);
+}
 
 internal sealed class ProbeReport
 {
@@ -87,7 +92,7 @@ internal sealed class AutoSession : IAutoSession
         if (warp.OtherVpnActive())
             throw new AutoEnvironmentException("Обнаружен другой VPN или WARP. Подбор остановлен, чтобы не смешивать результаты.");
         var started = await Task.Run(() => engine.Start(candidate.Darktide, candidate.Warp,
-            candidate.Discord, candidate.Youtube, candidate.SpaceMarine, cancellation), cancellation);
+            candidate.Discord, candidate.Youtube, candidate.SpaceMarine, cancellation, candidate.SpaceMarineEchoAddresses), cancellation);
         if (!started) throw new InvalidOperationException("Для проверки не выбрана стратегия.");
         if (candidate.Group == AutoGroup.Warp)
         {
@@ -175,6 +180,8 @@ internal sealed class AutoSelector
             foreach (var candidate in group)
             {
                 cancellation.ThrowIfCancellationRequested();
+                var scope = probe as IAutoCandidateScope;
+                if (scope != null) scope.Configure(candidate);
                 Report(progress, completed, candidates.Count, "Проверяем " + candidate.Code + " · " + GroupName(candidate.Group));
                 var result = new AutoResult { Candidate = candidate };
                 Exception interrupted = null;
@@ -224,7 +231,7 @@ internal sealed class AutoSelector
         switch (group) {
             case AutoGroup.Darktide:
                 return "TLS + UDP-ответ игровых узлов · матч не проверен";
-            case AutoGroup.SpaceMarine2: return "HTTPS/TLS · игровой UDP и матч не проверены";
+            case AutoGroup.SpaceMarine2: return "TLS + UDP-эхо · вход в матч не проверен";
             case AutoGroup.Discord: return "API/CDN/TLS · голос не проверен";
             case AutoGroup.Youtube: return "HTTPS/CDN · видео и QUIC не проверены";
             default: return "Туннель WARP и передача данных";
@@ -253,19 +260,26 @@ internal interface IAutoHttp
     Task<CurlResponse> Request(AutoProbeTarget target, CancellationToken cancellation);
 }
 
-internal sealed class AutoProbe : IAutoProbe, IAutoProbePreparation
+internal sealed class AutoProbe : IAutoProbe, IAutoProbePreparation, IAutoCandidateScope
 {
     private readonly IAutoHttp http;
     private readonly string profiles;
     private readonly IDarktideUdpProbe darktideUdp;
+    private readonly ISpaceMarineUdpProbe spaceMarineUdp;
     public AutoProbe(string profiles, IAutoHttp http) : this(profiles, http,
         new DarktideUdpProbe(new DarktideLogTargets(), new DarktideDatagrams())) { }
     internal AutoProbe(string profiles, IAutoHttp http, IDarktideUdpProbe darktideUdp)
-    { this.profiles = profiles; this.http = http; this.darktideUdp = darktideUdp; }
+        : this(profiles, http, darktideUdp, new SpaceMarineUdpProbe(SpaceMarineEchoCache.Default, new DarktideDatagrams())) { }
+    internal AutoProbe(string profiles, IAutoHttp http, IDarktideUdpProbe darktideUdp, ISpaceMarineUdpProbe spaceMarineUdp)
+    { this.profiles = profiles; this.http = http; this.darktideUdp = darktideUdp; this.spaceMarineUdp = spaceMarineUdp; }
+    public void Configure(AutoCandidate candidate)
+    {
+        if (candidate.Group == AutoGroup.SpaceMarine2) candidate.SpaceMarineEchoAddresses = spaceMarineUdp.Addresses;
+    }
 
     public Task<ProbeReport> PrepareGroup(AutoGroup group, CancellationToken cancellation)
     {
-        return group == AutoGroup.Darktide ? darktideUdp.Prepare(cancellation) : Task.FromResult<ProbeReport>(null);
+        return group == AutoGroup.Darktide ? darktideUdp.Prepare(cancellation) : group == AutoGroup.SpaceMarine2 ? spaceMarineUdp.Prepare(cancellation) : Task.FromResult<ProbeReport>(null);
     }
 
     internal static AutoProbeTarget[] Targets(AutoGroup group)
@@ -315,6 +329,11 @@ internal sealed class AutoProbe : IAutoProbe, IAutoProbePreparation
         if (group == AutoGroup.Darktide)
         {
             var udp = await darktideUdp.Test(cancellation);
+            return new ProbeReport { Passed = udp.Passed, Detail = "TLS " + successful + "/" + (targets.Length * 2) + ". " + udp.Detail };
+        }
+        if (group == AutoGroup.SpaceMarine2)
+        {
+            var udp = await spaceMarineUdp.Test(cancellation);
             return new ProbeReport { Passed = udp.Passed, Detail = "TLS " + successful + "/" + (targets.Length * 2) + ". " + udp.Detail };
         }
         return new ProbeReport { Passed = true, Detail = successful + "/" + (targets.Length * 2) + " · " + AutoSelector.Scope(group) };

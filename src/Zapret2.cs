@@ -49,7 +49,7 @@ internal static class Zapret2
 
     internal static string Arguments(string profiles, StrategySelection<Strategy> darktide,
         StrategySelection<WarpStrategy> warp, StrategySelection<ServiceStrategy> discord,
-        StrategySelection<ServiceStrategy> youtube, StrategySelection<Strategy> spaceMarine)
+        StrategySelection<ServiceStrategy> youtube, StrategySelection<Strategy> spaceMarine, string spaceMarineEchoFile = null)
     {
         var dt = darktide.BuiltIn != Strategy.None;
         var sm = spaceMarine.BuiltIn != Strategy.None;
@@ -94,6 +94,14 @@ internal static class Zapret2
             if (spaceMarine.BuiltIn == Strategy.CommunityAlt10)
                 AddUdpCapture(scopes, udpIn, Engine.SpaceMarineUdpPorts, ranges, true);
             AddGameWebRules(rules, profiles, "space-marine-2", spaceMarine.BuiltIn, warpExclusions, true);
+            if (spaceMarineEchoFile != null)
+            {
+                var echoRanges = ReadRanges(profiles, spaceMarineEchoFile);
+                if (echoRanges.Length > 64 || echoRanges.Any(value => { IPAddress ip; return !IPAddress.TryParse(value, out ip) || !SpaceMarineEchoCache.Valid(ip); }))
+                    throw new InvalidDataException("Недопустимая область UDP-диагностики.");
+                AddUdpCapture(scopes, udpOut, "50000", echoRanges, false);
+                if (spaceMarine.BuiltIn == Strategy.CommunityAlt10) AddUdpCapture(scopes, udpIn, "50000", echoRanges, true);
+            }
         }
         var exclusions = warpExclusions + (dt ? HostExclude(profiles, "darktide.txt") : "") +
             (sm ? HostExclude(profiles, "space-marine-2.txt") : "");
@@ -117,6 +125,8 @@ internal static class Zapret2
             AddYoutubeRules(rules, profiles, youtube, exclusions + (ds ? HostExclude(profiles, "discord.txt") : ""));
         if (dt)
             rules.Add(GameUdpRule(profiles, "darktide-udp", Engine.DarktideUdpPorts, darktide.BuiltIn, ""));
+        if (sm && spaceMarineEchoFile != null)
+            rules.Add(GameUdpRule(profiles, "space-marine-2-echo", "50000", spaceMarine.BuiltIn, IpSet(profiles, spaceMarineEchoFile)));
         if (sm)
             rules.Add(GameUdpRule(profiles, "space-marine-2-udp", Engine.SpaceMarineUdpPorts, spaceMarine.BuiltIn,
                 IpSet(profiles, Engine.SpaceMarineSharedIps) + IpSet(profiles, Engine.SpaceMarineUdpIps)));

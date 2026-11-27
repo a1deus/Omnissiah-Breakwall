@@ -247,11 +247,13 @@ public sealed class CheckRunner : MarshalByRefObject
         type.GetMethod("Rollback").Invoke(failedTransaction,null);
         foreach(var file in new[]{"a.txt","b.txt"}) Need(File.ReadAllText(Path.Combine(failRoot,file))=="old "+file,"Partial-failure rollback");
         // The old helper runs old code, so a new EXE cannot repair its ZIP checks.
-        var old=Assembly.LoadFile(oldAssembly).GetType("ReleaseUpdate");
+        var previous=Assembly.LoadFile(oldAssembly);
+        var old=previous.GetType("ReleaseUpdate");
+        var oldLayout=previous.GetName().Version.Major==1&&previous.GetName().Version.Minor<5;
         var rejected=false;
         try { old.GetMethod("ExtractPackage",StaticPrivate).Invoke(null,new object[]{zip,Path.Combine(scratch,"old-updater-payload")}); }
-        catch(TargetInvocationException error) { rejected=error.InnerException is InvalidDataException && error.InnerException.Message.Contains("winws.exe"); }
-        Need(rejected,"Expected old updater to reject new layout");
+        catch(TargetInvocationException error) { if(!oldLayout) throw; rejected=error.InnerException is InvalidDataException && error.InnerException.Message.Contains("winws.exe"); }
+        Need(rejected==oldLayout,oldLayout?"Expected old updater to reject new layout":"Previous zapret2 updater must accept the new package");
         // An omitted native dependency is rejected before installation.
         var broken=Path.Combine(scratch,"missing-blob.zip"); File.Copy(zip,broken);
         using(var archive=ZipFile.Open(broken,ZipArchiveMode.Update)) { archive.GetEntry("engine/ACTIVE_GAME_UDP.bin").Delete(); }
@@ -266,6 +268,6 @@ public sealed class CheckRunner : MarshalByRefObject
         try { update.GetMethod("ExtractPackage",StaticPrivate).Invoke(null,new object[]{traversal,Path.Combine(scratch,"traversal-payload")}); }
         catch(TargetInvocationException error) { rejected=error.InnerException is InvalidDataException; }
         Need(rejected&&!File.Exists(Path.Combine(scratch,"escape.txt")),"ZIP traversal protection");
-        Console.WriteLine("UPDATER: NEW PACKAGE, APPLY, RETIREMENT, ROLLBACK, PARTIAL FAILURE, CUSTOM FILE, MISSING DEPENDENCY, TRAVERSAL OK; OLD UPDATER REJECTION CONFIRMED");
+        Console.WriteLine("UPDATER: NEW PACKAGE, APPLY, RETIREMENT, ROLLBACK, PARTIAL FAILURE, CUSTOM FILE, MISSING DEPENDENCY, TRAVERSAL OK; PREVIOUS VERSION COMPATIBILITY CHECKED");
     }
 }

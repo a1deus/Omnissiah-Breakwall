@@ -30,11 +30,11 @@ internal sealed partial class MainWindow
         Controls.Add(autoPage);
         AddInformationHeading(autoPage, "Автоподбор");
         var hint = new Label {
-            Text = "Darktide: TLS и UDP-ответ серверов. Остальные игры: TLS. Для UDP нужны недавние адреса из локальных логов Darktide. Матч не проверяется.",
+            Text = "Игры: TLS и UDP. Darktide нужны свежие логи, Space Marine 2 — запуск игры с обходом для получения адресов. Вход в матч не проверяется.",
             ForeColor = Secondary, Font = new Font("Segoe UI", 9)
         };
         hint.SetBounds(34, 96, 380, 48); autoPage.Controls.Add(hint);
-        help.SetToolTip(hint, "Darktide: адреса берутся только из строк подключения в недавних локальных логах. Логи, адреса и результаты не сохраняются и не отправляются разработчику. Если адресов нет, сначала запустите игру до попытки входа в хаб. Space Marine 2: игровой UDP не проверяется.");
+        help.SetToolTip(hint, "Darktide: адреса берутся из недавних локальных логов. Space Marine 2: один раз включите её обход, запустите игру до меню, затем закройте игру и остановите обход. Лаунчер узнает адреса UDP-диагностики автоматически; они хранятся до суток, зашифрованными в профиле Windows. Пакеты и данные аккаунта не сохраняются. UDP-эхо не подтверждает вход в матч.");
         var groupCard = new Panel { BackColor = Surface, AccessibleName = "Группы для автоподбора" };
         groupCard.SetBounds(34, 154, 380, 112); autoPage.Controls.Add(groupCard);
         var groups = new[] { AutoGroup.Darktide, AutoGroup.SpaceMarine2, AutoGroup.Youtube, AutoGroup.Discord, AutoGroup.Warp };
