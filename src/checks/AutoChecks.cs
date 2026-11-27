@@ -40,7 +40,7 @@ public sealed class AutoCheckRunner : MarshalByRefObject
     {
         this.root=root;this.scratch=scratch;Directory.CreateDirectory(scratch);
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-        Acceptance();Backend();Subprocess();UdpChecks.Run(scratch);SpaceMarineChecks.Run(root,scratch);Ui();
+        Acceptance();Backend();WarpCleanup();OwnedProcesses();Subprocess();UdpChecks.Run(scratch);SpaceMarineChecks.Run(root,scratch);Ui();
         Console.WriteLine("AUTOSELECT: SCOPE, RESPONSE VALIDATION, ISOLATED PLANS, PROGRESS, FAILURE, CANCELLATION, CLEANUP, UI, APPLY AND PERSISTENCE OK; NO EXTERNAL NETWORK/FILTER/TUNNEL");
     }
     void Acceptance()
@@ -89,32 +89,115 @@ public sealed class AutoCheckRunner : MarshalByRefObject
         var candidates=new[]{Candidate("DT01"),Candidate("DT02")};
         var session=new FakeSession();var selector=new AutoSelector(session,new FakeProbe());var updates=new InlineProgress();
         Wait(selector.Run(candidates,updates,CancellationToken.None));
-        Need(session.Starts==2&&session.Stops==2&&session.Verifies==2&&selector.Results.All(r=>r.Passed),"Candidate lifecycle");
+        Need(session.Starts==2&&session.Stops==3&&session.Verifies==2&&selector.Results.All(r=>r.Passed),"Candidate lifecycle plus final cleanup");
         session=new FakeSession();selector=new AutoSelector(session,new UnavailableProbe());Wait(selector.Run(candidates,null,CancellationToken.None));
         Need(session.Starts==0&&selector.Results.All(r=>r.Skipped&&!r.Passed)&&selector.SkippedGroups.Count==1,"Missing UDP targets must skip group without filters");
         var adaptive=Candidate("DT23");adaptive.Id="Zapret2TlsCircular";
         var adaptiveProbe=new WarmingProbe();session=new FakeSession();selector=new AutoSelector(session,adaptiveProbe);
         Wait(selector.Run(new[]{adaptive},null,CancellationToken.None));
-        Need(session.Starts==1&&session.Stops==1&&adaptiveProbe.Count==4&&selector.Results.Single().Passed,"Adaptive warm-up must retain one filter process");
+        Need(session.Starts==1&&session.Stops==2&&adaptiveProbe.Count==4&&selector.Results.Single().Passed,"Adaptive warm-up must retain one filter process");
         Need(updates.Values.Last().Percent==100&&updates.Values.Select(p=>p.Percent).SequenceEqual(updates.Values.Select(p=>p.Percent).OrderBy(x=>x)),"Progress monotonicity");
         session=new FakeSession{FailStart=true};selector=new AutoSelector(session,new FakeProbe());Wait(selector.Run(candidates,null,CancellationToken.None));
-        Need(session.Stops==2&&selector.Results.All(r=>!r.Passed),"Failed starts cleanup");
+        Need(session.Stops==3&&selector.Results.All(r=>!r.Passed),"Failed starts cleanup");
         session=new FakeSession{FailVerify=true};selector=new AutoSelector(session,new FakeProbe());Wait(selector.Run(candidates,null,CancellationToken.None));
-        Need(selector.Results.All(r=>!r.Passed)&&session.Stops==2,"Filter crash accepted");
+        Need(selector.Results.All(r=>!r.Passed)&&session.Stops==3,"Filter crash accepted");
         session=new FakeSession{FailStop=true};selector=new AutoSelector(session,new FakeProbe());var failed=false;
         try{Wait(selector.Run(candidates,null,CancellationToken.None));}catch(InvalidOperationException){failed=true;}
-        Need(failed&&session.Starts==1&&selector.Results.Count==0,"Cleanup failure must stop run");
+        Need(failed&&session.Starts==1&&session.Stops==2&&selector.Results.Count==0,"Cleanup failure must retry, then stop run");
+        session=new FakeSession{FailFinalStop=true};selector=new AutoSelector(session,new FakeProbe());failed=false;
+        try{Wait(selector.Run(candidates,null,CancellationToken.None));}catch(InvalidOperationException){failed=true;}
+        Need(failed&&session.Stops==3&&selector.Results.Count==0,"Unconfirmed final cleanup must discard successes");
+        session=new FakeSession();selector=new AutoSelector(session,new FakeProbe());failed=false;
+        try{Wait(selector.Run(candidates,new ThrowingProgress(),CancellationToken.None));}catch(InvalidOperationException){failed=true;}
+        Need(failed&&session.Stops==1,"Failure before a candidate must still run final cleanup");
         session=new FakeSession{WaitForCancel=true};selector=new AutoSelector(session,new FakeProbe());
         using(var cancellation=new CancellationTokenSource()) {
             var task=selector.Run(candidates,null,cancellation.Token);cancellation.Cancel();var cancelled=false;
             try{Wait(task);}catch(OperationCanceledException){cancelled=true;}
-            Need(cancelled&&session.Starts==1&&session.Stops==1&&selector.Results.Count==0,"Cancellation cleanup");
+            Need(cancelled&&session.Starts==1&&session.Stops==2&&selector.Results.Count==0,"Cancellation plus final cleanup");
+        }
+        session=new FakeSession();selector=new AutoSelector(session,new FakeProbe());
+        using(var cancellation=new CancellationTokenSource()) {
+            session.OnFinalStop=()=>cancellation.Cancel();var cancelled=false;
+            try{Wait(selector.Run(candidates,null,cancellation.Token));}catch(OperationCanceledException){cancelled=true;}
+            Need(cancelled&&session.Stops==3,"Cancellation during final cleanup reported as completion");
         }
         session=new FakeSession();selector=new AutoSelector(session,new FakeProbe());
         using(var cancellation=new CancellationTokenSource()) {
             cancellation.Cancel();try{Wait(selector.Run(candidates,null,cancellation.Token));}catch(OperationCanceledException){}
             Need(session.Starts==0,"Pre-cancelled selection started filter");
         }
+    }
+    void WarpCleanup()
+    {
+        bool connected=false,disconnecting=false,failCommand=false,failStatus=false,stayConnected=false;
+        int disconnects=0,polls=0;
+        Func<string,CancellationToken,Task<string>> command=(argument,token)=>{
+            Need(!token.IsCancellationRequested,"Cleanup used cancelled token");
+            if(argument=="settings list")return Task.FromResult("Mode: Warp\n");
+            if(argument=="connect"){connected=true;return Task.FromResult("");}
+            if(argument=="disconnect"){
+                disconnects++;disconnecting=true;
+                if(failCommand)throw new InvalidOperationException("disconnect fixture");
+                return Task.FromResult("");
+            }
+            if(argument=="--json status"){
+                if(disconnecting){polls++;if(failStatus)throw new InvalidOperationException("status fixture");if(!stayConnected&&polls>=2)connected=false;}
+                return Task.FromResult("{\"status\":\""+(connected?"Connected":"Disconnected")+"\"}");
+            }
+            throw new Exception("Unexpected WARP fixture command");
+        };
+        var client=new OfficialWarp(command,500);
+        Wait(client.Connect(()=>false,CancellationToken.None));Wait(client.Disconnect());
+        Need(!connected&&!client.OwnsConnection&&polls>=2,"Disconnect must wait for service confirmation");
+        int previous=disconnects;Wait(client.Disconnect());Need(previous==disconnects,"Repeated cleanup touched unowned WARP");
+        connected=true;disconnecting=false;polls=0;client=new OfficialWarp(command,500);
+        Wait(client.Connect(()=>false,CancellationToken.None));Wait(client.Disconnect());
+        Need(disconnects==previous&&!client.OwnsConnection&&connected,"Pre-existing WARP must remain untouched");
+        connected=false;disconnecting=false;polls=0;stayConnected=true;client=new OfficialWarp(command,500);
+        Wait(client.Connect(()=>false,CancellationToken.None));bool failed=false;
+        try{Wait(client.Disconnect());}catch(InvalidOperationException){failed=true;}
+        Need(failed&&client.OwnsConnection&&connected,"Unconfirmed disconnect must retain ownership");
+        stayConnected=false;polls=0;Wait(client.Disconnect());Need(!client.OwnsConnection&&!connected,"Cleanup retry did not disconnect");
+        connected=false;disconnecting=false;polls=0;failStatus=true;client=new OfficialWarp(command,500);
+        Wait(client.Connect(()=>false,CancellationToken.None));failed=false;
+        try{Wait(client.Disconnect());}catch(InvalidOperationException){failed=true;}
+        Need(failed&&client.OwnsConnection,"Status error silently released WARP ownership");
+        failStatus=false;polls=0;failCommand=true;Wait(client.Disconnect());
+        Need(!client.OwnsConnection&&!connected,"Confirmed disconnection must recover from CLI failure");
+        Console.WriteLine("WARP CLEANUP: DELAYED STATUS, TIMEOUT, STATUS ERROR, RETRY, CLI ERROR, IDEMPOTENCE AND PRE-EXISTING CONNECTION OK (SIMULATED CLIENT)");
+    }
+    void OwnedProcesses()
+    {
+        var engine=new Engine();var owned=Field<List<System.Diagnostics.Process>>(engine,"processes");
+        var children=new List<System.Diagnostics.Process>();System.Diagnostics.Process unrelated=null,descendant=null;
+        var gate=Path.Combine(scratch,"owned-process-fixture");Directory.CreateDirectory(gate);
+        var locked=Path.Combine(scratch,"cleanup-locked.txt");File.WriteAllText(locked,"fixture");
+        try {
+            var job=Engine.CreateKillJob();typeof(Engine).GetField("job",Private).SetValue(engine,job);
+            unrelated=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(scratch,"CurlFixture.exe"),"--sleep"){UseShellExecute=false,CreateNoWindow=true});
+            foreach(var argument in new[]{"--spawn-child \""+gate+"\"","--sleep"}) {
+                var child=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(scratch,"CurlFixture.exe"),argument){UseShellExecute=false,CreateNoWindow=true});
+                owned.Add(child);children.Add(child);Need(Engine.AssignProcessToJobObject(job,child.Handle),"Fixture job assignment");
+            }
+            File.WriteAllText(Path.Combine(gate,"start"),"fixture");var deadline=DateTime.UtcNow.AddSeconds(5);
+            var pidFile=Path.Combine(gate,"child.pid");while(!File.Exists(pidFile)){Thread.Sleep(10);Need(DateTime.UtcNow<deadline,"Descendant fixture timeout");}
+            descendant=System.Diagnostics.Process.GetProcessById(int.Parse(File.ReadAllText(pidFile)));var ignoredHandle=descendant.Handle;
+            typeof(Engine).GetField("spaceMarineScopeFile",Private).SetValue(engine,locked);
+            using(File.Open(locked,FileMode.Open,FileAccess.ReadWrite,FileShare.None)) {
+                bool failed=false;try{engine.Dispose();}catch(InvalidOperationException){failed=true;}
+                Need(failed&&!engine.Running,"File cleanup error must not keep filter processes alive");
+            }
+            Need(owned.Count==0&&descendant.WaitForExit(2000),"Owned processes or descendants survived cleanup");
+            Need(!unrelated.HasExited,"Cleanup killed unrelated process with the same executable name");
+            engine.Dispose();engine.Dispose();Need(!File.Exists(locked),"Final cleanup did not retry leftover file");
+        }
+        finally {
+            engine.Dispose();
+            foreach(var process in new[]{unrelated,descendant})if(process!=null){try{if(!process.HasExited)process.Kill();process.WaitForExit(2000);}finally{process.Dispose();}}
+            foreach(var process in children)process.Dispose();
+        }
+        Console.WriteLine("OWNED PROCESS CLEANUP: REAL CHILDREN AND DESCENDANT EXIT; UNRELATED SAME-NAME PROCESS PRESERVED; CLEANUP ERROR AND RETRY OK (OFFLINE)");
     }
     void Subprocess()
     {
@@ -185,7 +268,7 @@ public sealed class AutoCheckRunner : MarshalByRefObject
             var running=(Task)Call(window,"RunAutoSelection");Application.DoEvents();
             Need(Field<Button>(window,"openAuto").Enabled,"Cannot return to running selection");
             Wait((Task)Call(window,"RunAutoSelection"));Wait(running);
-            Need(fakeSession.Stops==1&&!Field<bool>(window,"busy")&&!Field<bool>(window,"autoSelecting"),"UI cancellation stuck");
+            Need(fakeSession.Stops==2&&!Field<bool>(window,"busy")&&!Field<bool>(window,"autoSelecting"),"UI cancellation stuck");
             Need(rows.Controls.Count==0&&Field<AutoProgressBar>(window,"autoProgress").Value<100,"Cancelled run presented as complete");
             Need(Field<Label>(window,"autoStatus").Text.StartsWith("Подбор остановлен"),"Cancellation status overwritten");
             // Selecting a WARP result changes its dropdown only, never the
@@ -201,7 +284,7 @@ public sealed class AutoCheckRunner : MarshalByRefObject
             var session=new FakeSession{WaitForCancel=true};var selector=new AutoSelector(session,new FakeProbe());
             closing.GetType().GetField("autoSelectorFactory",Private).SetValue(closing,new Func<AutoSelector>(()=>selector));
             var pending=(Task)Call(closing,"RunAutoSelection");closing.Close();Wait(pending);Application.DoEvents();
-            Need(closing.IsDisposed&&session.Stops==1,"Closing did not cancel and finish cleanup");
+            Need(closing.IsDisposed&&session.Stops==2,"Closing did not cancel and finish cleanup");
         }
     }
     void Render(Form window,string name)
@@ -212,11 +295,16 @@ public sealed class AutoCheckRunner : MarshalByRefObject
     }
     sealed class FakeSession : IAutoSession
     {
-        public int Starts,Stops,Verifies;public bool FailStart,FailStop,FailVerify,WaitForCancel;
+        public int Starts,Stops,Verifies;public bool FailStart,FailStop,FailFinalStop,FailVerify,WaitForCancel;
+        public Action OnFinalStop;
         public Task Prepare(CancellationToken cancellation){cancellation.ThrowIfCancellationRequested();return Task.FromResult(0);}
         public Task Start(AutoCandidate candidate,CancellationToken cancellation){Starts++;if(FailStart)throw new InvalidOperationException("start fixture");return WaitForCancel?Task.Delay(-1,cancellation):Task.FromResult(0);}
         public Task Verify(AutoCandidate candidate,CancellationToken cancellation){Verifies++;if(FailVerify)throw new InvalidOperationException("filter fixture");return Task.FromResult(0);}
-        public Task Stop(){Stops++;if(FailStop)throw new InvalidOperationException("stop fixture");return Task.FromResult(0);}
+        public Task Stop(){Stops++;if(Stops==3&&OnFinalStop!=null)OnFinalStop();if(FailStop||(FailFinalStop&&Stops==3))throw new InvalidOperationException("stop fixture");return Task.FromResult(0);}
+    }
+    sealed class ThrowingProgress : IProgress<AutoProgress>
+    {
+        public void Report(AutoProgress value){throw new InvalidOperationException("progress fixture");}
     }
     sealed class FakeProbe : IAutoProbe
     {

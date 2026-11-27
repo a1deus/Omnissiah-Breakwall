@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('\A[0-9]+\.[0-9]+\.[0-9]+\z')]
-    [string]$Version = '1.5.1',
+    [string]$Version = '1.5.2',
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'dist')
 )
 $ErrorActionPreference = 'Stop'

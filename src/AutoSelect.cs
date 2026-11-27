@@ -156,6 +156,25 @@ internal sealed class AutoSelector
         if (candidates.Count == 0) throw new InvalidOperationException("Выберите хотя бы одну группу.");
         Results.Clear(); Baselines.Clear(); SkippedGroups.Clear();
         await session.Prepare(cancellation);
+        Exception failure = null;
+        try { await RunCandidates(candidates, progress, cancellation); }
+        catch (Exception error) { failure = error; }
+        // Also cover failures outside a candidate (baseline, scope, progress,
+        // preparation), and retry cleanup if the last candidate could not stop.
+        // C# 5 cannot await in finally; never use the cancelled run token here.
+        try { await session.Stop(); }
+        catch (Exception error)
+        {
+            Results.Clear();
+            throw new InvalidOperationException("Не удалось завершить очистку автоподбора. Проверочное подключение требует остановки: " + error.Message,
+                failure == null ? error : new AggregateException(failure, error));
+        }
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+        cancellation.ThrowIfCancellationRequested();
+    }
+
+    private async Task RunCandidates(IList<AutoCandidate> candidates, IProgress<AutoProgress> progress, CancellationToken cancellation)
+    {
         var completed = 0;
         foreach (var group in candidates.GroupBy(candidate => candidate.Group))
         {
@@ -210,6 +229,7 @@ internal sealed class AutoSelector
                 Report(progress, ++completed, candidates.Count, "Проверено " + candidate.Code);
             }
         }
+        Report(progress, completed, candidates.Count, "Останавливаем проверочные процессы и подключения…");
     }
 
     private static void Report(IProgress<AutoProgress> progress, int completed, int total, string message)
@@ -443,12 +463,7 @@ internal sealed class CurlAutoHttp : IAutoHttp
                 }
                 finally
                 {
-                    if (started)
-                    {
-                        try { if (!child.HasExited) child.Kill(); }
-                        catch (InvalidOperationException) { if (!child.HasExited) throw; }
-                        child.WaitForExit(2000);
-                    }
+                    if (started) Engine.StopOwnedProcess(child);
                 }
             }
         }, cancellation);

@@ -259,33 +259,44 @@ internal sealed class Engine : IDisposable
 
     public void Dispose()
     {
-        if (spaceMarineDiscovery != null) { spaceMarineDiscovery.Dispose(); spaceMarineDiscovery = null; }
-        if (job != null)
-        {
-            job.Dispose();
-            job = null;
-        }
         Exception failure = null;
-        foreach (var process in processes)
+        try
+        {
+            if (spaceMarineDiscovery != null) { spaceMarineDiscovery.Dispose(); spaceMarineDiscovery = null; }
+        }
+        catch (Exception error) { failure = error; }
+        try
+        {
+            if (job != null) { job.Dispose(); job = null; }
+        }
+        catch (Exception error) { if (failure == null) failure = error; }
+        foreach (var process in processes.ToArray())
         {
             try
             {
-                if (process.WaitForExit(300)) continue;
-                try { process.Kill(); }
-                catch (InvalidOperationException) { if (!process.HasExited) throw; }
-                if (!process.WaitForExit(2000))
-                    throw new InvalidOperationException("Не удалось остановить процесс сетевого фильтра.");
+                StopOwnedProcess(process);
+                processes.Remove(process);
+                process.Dispose();
             }
             catch (Exception error) { if (failure == null) failure = error; }
-            finally { process.Dispose(); }
         }
-        processes.Clear();
+        // Retain handles for processes whose exit was not confirmed, so a
+        // subsequent Stop can retry. Never terminate processes by name.
         if (spaceMarineScopeFile != null)
         {
             try { File.Delete(spaceMarineScopeFile); spaceMarineScopeFile = null; }
             catch (Exception error) { if (failure == null) failure = error; }
         }
         if (failure != null) throw new InvalidOperationException(failure.Message, failure);
+    }
+
+    internal static void StopOwnedProcess(Process process)
+    {
+        if (process.WaitForExit(300)) return;
+        try { process.Kill(); }
+        catch (InvalidOperationException) { if (!process.HasExited) throw; }
+        if (!process.WaitForExit(2000))
+            throw new InvalidOperationException("Не удалось остановить проверочный процесс.");
     }
 
     internal static SafeFileHandle CreateKillJob()

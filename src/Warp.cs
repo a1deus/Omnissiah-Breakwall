@@ -256,21 +256,28 @@ internal sealed class Warp : IDisposable
 
     public async Task Disconnect()
     {
-        await official.Disconnect();
-        if (tunnel == null) return;
         Exception failure = null;
+        try { await official.Disconnect(); }
+        catch (Exception error) { failure = error; }
+        // An official-client failure must not skip cleanup of our own tunnel.
         try
         {
-            for (var index = routes.Count - 1; index >= 0; index--)
+            if (tunnel != null) for (var index = routes.Count - 1; index >= 0; index--)
             {
                 if (!NetworkInterface.GetAllNetworkInterfaces().Any(nic => nic.Name == adapterName)) break;
                 try { await Route("delete", routes[index]); }
                 catch (Exception error) { failure = error; }
             }
         }
-        finally { Dispose(); }
-        if (failure != null && NetworkInterface.GetAllNetworkInterfaces().Any(nic => nic.Name == adapterName))
-            throw new InvalidOperationException("Не удалось удалить маршрут адаптера WARP.", failure);
+        catch (Exception error) { if (failure == null) failure = error; }
+        finally
+        {
+            try { Dispose(); }
+            catch (Exception error) { if (failure == null) failure = error; }
+        }
+        if (official.OwnsConnection || tunnel != null ||
+            (failure != null && NetworkInterface.GetAllNetworkInterfaces().Any(nic => nic.Name == adapterName)))
+            throw new InvalidOperationException("Не удалось полностью отключить проверочное подключение WARP.", failure);
     }
 
     private Task Route(string verb, string prefix)
@@ -294,16 +301,23 @@ internal sealed class Warp : IDisposable
         CancellationToken cancellation = default(CancellationToken))
     {
         cancellation.ThrowIfCancellationRequested();
+        using (var commandJob = Engine.CreateKillJob())
         using (var command = Process.Start(Info(path, arguments)))
         {
-            var output = command.StandardOutput.ReadToEndAsync();
-            var errors = command.StandardError.ReadToEndAsync();
-            await WaitForCommand(command, timeout, cancellation, "Компонент WARP не ответил вовремя.");
-            var result = (await output) + (await errors);
-            cancellation.ThrowIfCancellationRequested();
-            if (command.ExitCode != 0)
-                throw new InvalidOperationException(includeOutput ? result.Trim() :
-                    "Не удалось зарегистрировать устройство WARP. Код " + command.ExitCode + ".");
+            try
+            {
+                if (!Engine.AssignProcessToJobObject(commandJob, command.Handle))
+                    throw new System.ComponentModel.Win32Exception();
+                var output = command.StandardOutput.ReadToEndAsync();
+                var errors = command.StandardError.ReadToEndAsync();
+                await WaitForCommand(command, timeout, cancellation, "Компонент WARP не ответил вовремя.");
+                var result = (await output) + (await errors);
+                cancellation.ThrowIfCancellationRequested();
+                if (command.ExitCode != 0)
+                    throw new InvalidOperationException(includeOutput ? result.Trim() :
+                        "Не удалось зарегистрировать устройство WARP. Код " + command.ExitCode + ".");
+            }
+            finally { Engine.StopOwnedProcess(command); }
         }
     }
 
@@ -329,12 +343,7 @@ internal sealed class Warp : IDisposable
     {
         if (job != null) { job.Dispose(); job = null; }
         if (tunnel == null) return;
-        if (!tunnel.WaitForExit(500))
-        {
-            if (!tunnel.HasExited) tunnel.Kill();
-            if (!tunnel.WaitForExit(2000))
-                throw new InvalidOperationException("Процесс usque не завершился.");
-        }
+        Engine.StopOwnedProcess(tunnel);
         tunnel.Dispose();
         tunnel = null;
         connected = false;
@@ -346,6 +355,7 @@ internal sealed class OfficialWarp
 {
     private readonly string executable;
     private readonly Func<string, CancellationToken, Task<string>> command;
+    private readonly int disconnectTimeout = 10000;
 
     public OfficialWarp()
     {
@@ -356,6 +366,8 @@ internal sealed class OfficialWarp
     }
 
     internal OfficialWarp(Func<string, CancellationToken, Task<string>> command) { this.command = command; }
+    internal OfficialWarp(Func<string, CancellationToken, Task<string>> command, int disconnectTimeout)
+    { this.command = command; this.disconnectTimeout = disconnectTimeout; }
 
     public bool Installed { get { return executable != null && File.Exists(executable); } }
     public bool OwnsConnection { get; private set; }
@@ -403,8 +415,26 @@ internal sealed class OfficialWarp
     public async Task Disconnect()
     {
         if (!OwnsConnection) return;
-        await command("disconnect", CancellationToken.None);
-        OwnsConnection = false;
+        Exception failure = null;
+        try { await command("disconnect", CancellationToken.None); }
+        catch (Exception error) { failure = error; }
+        var wait = Stopwatch.StartNew();
+        do
+        {
+            try
+            {
+                if (await Status(CancellationToken.None) == "Disconnected")
+                {
+                    OwnsConnection = false;
+                    return;
+                }
+            }
+            catch (Exception error) { failure = error; }
+            await Task.Delay(100);
+        } while (wait.ElapsedMilliseconds < disconnectTimeout);
+        // Keep ownership on timeout/error: UI must allow another stop attempt,
+        // and final run cleanup must not silently leave the service connected.
+        throw new InvalidOperationException("Cloudflare WARP не подтвердил отключение. Повторите остановку подключения.", failure);
     }
 
     private async Task<string> Status(CancellationToken cancellation)
@@ -425,17 +455,24 @@ internal sealed class OfficialWarp
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true
         };
+        using (var commandJob = Engine.CreateKillJob())
         using (var process = Process.Start(info))
         {
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
-            await Warp.WaitForCommand(process, 5000, cancellation, "Официальный клиент Cloudflare WARP не ответил.");
-            var output = (await stdout).Trim();
-            var error = (await stderr).Trim();
-            cancellation.ThrowIfCancellationRequested();
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException("Cloudflare WARP: " + (error.Length > 0 ? error : output));
-            return output;
+            try
+            {
+                if (!Engine.AssignProcessToJobObject(commandJob, process.Handle))
+                    throw new System.ComponentModel.Win32Exception();
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                await Warp.WaitForCommand(process, 5000, cancellation, "Официальный клиент Cloudflare WARP не ответил.");
+                var output = (await stdout).Trim();
+                var error = (await stderr).Trim();
+                cancellation.ThrowIfCancellationRequested();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("Cloudflare WARP: " + (error.Length > 0 ? error : output));
+                return output;
+            }
+            finally { Engine.StopOwnedProcess(process); }
         }
     }
 }
