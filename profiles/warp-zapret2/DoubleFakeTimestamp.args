@@ -1,0 +1,26 @@
+# Source: general (DOUBLE FAKE).bat. WARP endpoints replace the general service lists.
+--name=warp-domain-quic --filter-udp=443 --filter-l7=quic --hostlist="{profiles}/warp.txt"
+--payload=quic_initial
+--lua-desync=fake:blob=quic_google:repeats=6
+--new
+--name=warp-domain-tls --filter-tcp=80,443 --hostlist="{profiles}/warp.txt"
+--payload=tls_client_hello
+--lua-desync=fake:blob=stun:repeats=6:tcp_ts=-600000
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
+--lua-desync=multisplit:pos=2
+--payload=http_req
+--lua-desync=fake:blob=tls_teamspeak:repeats=6:tcp_ts=-600000
+--lua-desync=multisplit:pos=2
+--new
+--name=warp-masque-quic --filter-udp=443,500,1701,4500,4443,8443,8095 --filter-l7=quic --ipset="{profiles}/warp-masque.txt"
+--payload=quic_initial
+--lua-desync=fake:blob=quic_google:repeats=6
+--new
+--name=warp-api-masque-tls --filter-tcp=80,443,8443 --ipset="{profiles}/warp-masque.txt" --ipset="{profiles}/warp-api.txt"
+--payload=tls_client_hello
+--lua-desync=fake:blob=stun:repeats=6:tcp_ts=-600000
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
+--lua-desync=multisplit:pos=2
+--payload=http_req
+--lua-desync=fake:blob=tls_teamspeak:repeats=6:tcp_ts=-600000
+--lua-desync=multisplit:pos=2

@@ -1,0 +1,14 @@
+atoma.cloud
+atoma-discovery.com
+fatshark.se
+fatsharkgames.com
+fatshark.games
+login.shr-prod-identity.fatshark.services
+playdarktide.com
+mt2p.vivox.com
+bsp-sup-sd.atoma-discovery.com
+bytepluses.com
+bytedgame.com
+backtrace.io
+gameslantern.com
+darktide.gameslantern.com

@@ -1,0 +1,5 @@
+# Source: general (EXP2).bat. TLS sections scoped to Breakwall hostlists.
+--name=youtube-tls --filter-tcp=443 --filter-l7=tls --hostlist="{profiles}/youtube-core.txt" --hostlist="{profiles}/youtube.txt"{exclude}
+--payload=tls_client_hello
+--lua-desync=fake:blob=tls_google:tls_mod=rnd,dupsid:repeats=6:tcp_ts=-600000
+--lua-desync=multidisorder:pos=1,sniext+1,host+1,midsld-2,midsld,midsld+2,endhost-1
